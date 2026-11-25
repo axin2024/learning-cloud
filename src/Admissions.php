@@ -143,7 +143,7 @@ final readonly class Admissions
         return $this->store->transaction(function () use ($actor, $enrollmentId): array {
             $beforeLock = $this->ownOrManaged($actor, $enrollmentId);
             $cohort = $this->cohortRow($actor, $beforeLock['cohort_id'], true);
-            $enrollment = $this->ownOrManaged($actor, $enrollmentId);
+            $enrollment = $this->ownOrManaged($actor, $enrollmentId, lock: true);
             if ($enrollment['state'] === 'withdrawn') {
                 return $this->detail($actor, $enrollmentId);
             }
@@ -188,7 +188,7 @@ final readonly class Admissions
             $first = $this->cohortRow($actor, min($sourceId, $targetId), true);
             $second = $this->cohortRow($actor, max($sourceId, $targetId), true);
             [$source, $target] = $sourceId < $targetId ? [$first, $second] : [$second, $first];
-            $enrollment = $this->ownOrManaged($actor, $enrollmentId);
+            $enrollment = $this->ownOrManaged($actor, $enrollmentId, lock: true);
             if ($enrollment['state'] === 'transferred') {
                 $previous = $this->store->one('SELECT id, cohort_id FROM enrollments WHERE tenant_id=? AND transferred_from_id=?', [$actor->tenantId, $enrollmentId]);
                 if (($previous['cohort_id'] ?? null) === $targetId) {
@@ -211,6 +211,12 @@ final readonly class Admissions
                 throw new Problem(409, 'target_cohort_full');
             }
             $newId = $this->insertEnrollment($actor, $targetId, $enrollment['learner_id'], 'enrolled', $enrollmentId);
+            $this->store->execute('INSERT INTO study_spans (tenant_id, enrollment_id, chapter_id, start_second, end_second)
+                SELECT tenant_id, ?, chapter_id, start_second, end_second FROM study_spans WHERE tenant_id=? AND enrollment_id=?',
+                [$newId, $actor->tenantId, $enrollmentId]);
+            if ($enrollment['state'] === 'studying') {
+                $this->store->execute("UPDATE enrollments SET state='studying' WHERE tenant_id=? AND id=?", [$actor->tenantId, $newId]);
+            }
             $this->close($actor, $enrollmentId, 'transferred');
             $promoted = $this->promote($actor, $sourceId, 1);
             $this->audit->record($actor, 'enrollment', $enrollmentId, 'transferred', ['target_enrollment_id' => $newId, 'promoted' => $promoted]);
@@ -254,12 +260,12 @@ final readonly class Admissions
         return $row ?? throw new Problem(404, 'cohort_not_found');
     }
 
-    private function ownOrManaged(Actor $actor, int $id, bool $includeWaitlistPosition = false): array
+    private function ownOrManaged(Actor $actor, int $id, bool $includeWaitlistPosition = false, bool $lock = false): array
     {
         $position = $includeWaitlistPosition ? ", CASE WHEN e.state='waitlisted' THEN (
             SELECT COUNT(*) FROM enrollments w WHERE w.tenant_id=e.tenant_id AND w.cohort_id=e.cohort_id AND w.state='waitlisted' AND w.id<=e.id
         ) END AS waitlist_position" : '';
-        $row = $this->store->one('SELECT ' . self::ENROLLMENT_FIELDS . $position . ' FROM enrollments e WHERE e.tenant_id=? AND e.id=?', [$actor->tenantId, $id]);
+        $row = $this->store->one('SELECT ' . self::ENROLLMENT_FIELDS . $position . ' FROM enrollments e WHERE e.tenant_id=? AND e.id=?' . ($lock ? ' FOR UPDATE' : ''), [$actor->tenantId, $id]);
         if ($row === null || (!$actor->managesCatalog() && $row['learner_id'] !== $actor->accountId)) {
             throw new Problem(404, 'enrollment_not_found');
         }

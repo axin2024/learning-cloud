@@ -24,6 +24,14 @@ final class Http
         $requestId = bin2hex(random_bytes(12));
         header('X-Request-Id: ' . $requestId);
         try {
+            if ($method === 'POST' && $path === '/api/live-attendance') {
+                $input = $this->body();
+                $store = Store::connect();
+                $audit = new Audit($store);
+                $attendance = new LiveAttendance($store, new StudyProgress($store, $audit), $audit);
+                $receipt = $attendance->submit($_SERVER['HTTP_AUTHORIZATION'] ?? '', $input);
+                $this->send($receipt, $receipt['replayed'] ? 200 : 202);
+            }
             $this->startSession();
             if ($method === 'GET' && $path === '/api/session') {
                 $result = $this->sessionSummary();
@@ -68,6 +76,10 @@ final class Http
                 $companies = new Companies($store, $accounts, $audit);
                 $seats = new SeatPurchases($store, $companies, $admissions, $audit);
                 [$status, $result] = $this->enterprise($actor, $companies, $seats, $method, $path, $input);
+            } elseif (str_starts_with($path, '/api/study/')) {
+                $study = new StudyProgress($store, $audit);
+                $attendance = new LiveAttendance($store, $study, $audit);
+                [$status, $result] = $this->study($actor, $study, $attendance, $method, $path, $input);
             } else {
                 [$status, $result] = $this->dispatch($actor, $accounts, $catalog, $admissions, $method, $path, $input);
             }
@@ -237,6 +249,49 @@ final class Http
             'cookie_path' => '/', 'cookie_httponly' => 1, 'cookie_samesite' => 'Lax', 'cache_limiter' => '',
         ]);
         $_SESSION['csrf'] ??= bin2hex(random_bytes(32));
+    }
+
+    private function study(Actor $actor, StudyProgress $study, LiveAttendance $attendance, string $method, string $path, array $input): array
+    {
+        if ($path === '/api/study/providers') {
+            return match ($method) {
+                'GET' => [200, $attendance->providers($actor, $this->cursor())],
+                'POST' => [201, $attendance->register($actor, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if ($path === '/api/study/attendance' && $method === 'GET') {
+            return [200, $attendance->reviews($actor, $this->cursor(), Input::choice(['state' => $_GET['state'] ?? 'review'], 'state', ['review', 'accepted', 'rejected']))];
+        }
+        if (preg_match('~\A/api/study/enrollments/([1-9][0-9]*)(?:/chapters/([1-9][0-9]*)/start)?\z~', $path, $parts)) {
+            $enrollment = $this->id($parts[1]);
+            return match ([$method, isset($parts[2])]) {
+                ['GET', false] => [200, $study->progress($actor, $enrollment)],
+                ['POST', true] => [200, $study->start($actor, $enrollment, $this->id($parts[2]))],
+                default => $this->notFound(),
+            };
+        }
+        if (preg_match('~\A/api/study/cohorts/([1-9][0-9]*)/live(?:/([1-9][0-9]*))?\z~', $path, $parts)) {
+            $cohort = $this->id($parts[1]);
+            return match ([$method, isset($parts[2])]) {
+                ['GET', false] => [200, $attendance->bindings($actor, $cohort)],
+                ['PUT', true] => [200, $attendance->bind($actor, $cohort, $this->id($parts[2]), $input)],
+                default => $this->notFound(),
+            };
+        }
+        if ($method === 'POST' && preg_match('~\A/api/study/(providers|sessions|attendance)/([1-9][0-9]*)/(rotate|intervals|review)\z~', $path, $parts)) {
+            $id = $this->id($parts[2]);
+            if ($parts[1] === 'sessions' && $parts[3] === 'intervals') {
+                $event = $study->browserInterval($actor, $id, $input, Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null));
+                return [$event['replayed'] ? 200 : 201, $event];
+            }
+            return match ([$parts[1], $parts[3]]) {
+                ['providers', 'rotate'] => [200, $attendance->rotate($actor, $id)],
+                ['attendance', 'review'] => [200, $attendance->review($actor, $id, $input)],
+                default => $this->notFound(),
+            };
+        }
+        $this->notFound();
     }
 
     private function validateCsrf(): void

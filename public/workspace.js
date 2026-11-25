@@ -32,12 +32,19 @@ const errorLabels = {
     cohort_not_in_contract: "班期课程与合同课程不匹配。", activated_seat_cannot_reclaim: "已激活席位不可回收。",
     seat_reclaimed: "该席位已回收。", learner_already_in_cohort: "你在此班期已有报名或候补。",
     enterprise_cohort_full: "此班期已满，企业席位仍处于待激活状态。",
+    invalid_recorded_media_url: "录播链接须为不含登录信息的 HTTPS 地址。", enrollment_cannot_study: "当前报名状态无法记入新的学时。",
+    live_provider_not_configured: "请教务先为这节直播绑定出勤平台。", live_provider_already_in_use: "当前章节已有学习会话，使用令牌轮换可继续对接原平台。",
+    attendance_session_code_missing: "直播平台未提供学习会话号。", attendance_session_unmatched: "未找到属于此平台的匹配会话。",
+    study_interval_outside_chapter: "出勤区间超出章节时长。", attendance_event_already_reviewed: "此回执已复核，请刷新。",
+    invalid_attendance_session_code: "请填写 48 位小写十六进制学习会话号。", attendance_provider_code_exists: "已使用此平台代码。",
+    attendance_role_not_learner: "该平台角色无需认定学员出勤。",
 };
 
 let actor = null;
 let csrf = null;
 let activeView = 0;
 let saveForm = null;
+let leaveStudy = null;
 const enrollmentKeys = new Map();
 
 function element(tag, value, className) {
@@ -113,6 +120,7 @@ function displayNavigation(current) {
     const entries = [["courses", "课程", showCourses], ["cohorts", "班期", showCohorts]];
     if (actor.roles.includes("learner")) entries.push(["mine", "我的报名", showMine], ["my-seats", "企业席位", showMySeats]);
     if (actor.roles.includes("admin") || actor.roles.includes("enterprise_admin")) entries.push(["companies", "企业购课", showCompanies]);
+    if (manages()) entries.push(["live", "直播出勤", showLiveHub]);
     if (actor.roles.includes("admin")) entries.push(["accounts", "成员", showAccounts]);
     $("navigation").replaceChildren(...entries.map(([screen, label, navigate]) => {
         const link = button(label, () => navigate());
@@ -122,6 +130,7 @@ function displayNavigation(current) {
 }
 
 async function display(screen, load) {
+    finishStudy();
     const view = ++activeView;
     displayNavigation(screen);
     const content = $("content");
@@ -264,7 +273,8 @@ function minutes(seconds) {
 
 async function showRevision(courseId, revisionId, enrollmentId = null) {
     await display(enrollmentId ? "mine" : "courses", async () => {
-        const revision = await api(`/api/courses/${courseId}/revisions/${revisionId}`);
+        const [revision, progress] = await Promise.all([api(`/api/courses/${courseId}/revisions/${revisionId}`),
+            enrollmentId ? api(`/api/study/enrollments/${enrollmentId}`) : null]);
         const tools = element("div", null, "toolbar");
         if (!revision.published_at && manages()) {
             tools.append(button("编辑草稿", () => editRevision(courseId, revision)), button("发布版本", async () => {
@@ -276,10 +286,14 @@ async function showRevision(courseId, revisionId, enrollmentId = null) {
         const facts = block("div", "surface", badge(revision.published_at ? "published" : "draft"),
             block("div", "metrics", metric("最低有效学时", minutes(revision.minimum_study_seconds)), metric("考试通过线", revision.pass_score),
                 metric("补考成绩规则", revision.retake_mode === "highest" ? "最高分" : "最近一次")));
-        const chapters = revision.chapters.map((chapter) => block("article", "surface material",
+        const canStudy = progress && ["enrolled", "studying"].includes(progress.enrollment_state);
+        const chapters = revision.chapters.map((chapter, index) => block("article", "surface material",
             element("h3", `${chapter.ordinal}. ${chapter.title}`),
             element("p", `${{text: "阅读", recorded: "录播", live: "直播"}[chapter.kind]} · ${minutes(chapter.duration_seconds)}`, "meta"),
             element("p", chapter.content),
+            ...(canStudy ? [element("p", `累计有效学时 ${minutes(progress.chapters[index].studied_seconds)}`, "meta"),
+                button(chapter.kind === "live" ? "获取直播会话号" : "学习本章", () => showStudyChapter(enrollmentId, courseId, revisionId, chapter), "row-link")] : []),
+            ...(!canStudy && chapter.media_url ? [mediaPlayer(chapter.media_url)] : []),
             ...(chapter.rights_basis ? [element("p", `授权依据 ${chapter.rights_reference || "待核实"}`, "meta")] : [])));
         return [enrollmentId ? back("报名详情", () => showEnrollment(enrollmentId)) : back("课程版本", () => showCourse(courseId)),
             heading(revision.title, `v${revision.revision}${revision.summary ? ` · ${revision.summary}` : ""}`, tools.childElementCount ? tools : null),
@@ -294,6 +308,7 @@ function editRevision(courseId, revision = null) {
             field("chapter_title", "章节标题", "text", item.title || "", {maxlength: 200}),
             field("chapter_kind", "章节类型", "select", item.kind || "text", {choices: [["text", "阅读"], ["recorded", "录播"], ["live", "直播"]]}),
             field("chapter_content", "章节内容", "textarea", item.content || "", {maxlength: 12000}),
+            field("media_url", "录播地址（HTTPS，可选）", "url", item.media_url || "", {maxlength: 2048, required: false}),
             fields(field("duration_seconds", "时长（秒）", "number", item.duration_seconds ?? 600, {min: 1, max: 86400}),
                 field("required_seconds", "最低认定（秒）", "number", item.required_seconds ?? 600, {min: 0, max: 86400})),
             fields(field("rights_basis", "材料授权", "select", item.rights_basis || "unverified", {
@@ -319,7 +334,7 @@ function editRevision(courseId, revision = null) {
                 const value = (name) => group.querySelector(`[name="${name}"]`).value;
                 return {title: value("chapter_title"), kind: value("chapter_kind"), content: value("chapter_content"),
                     duration_seconds: Number(value("duration_seconds")), required_seconds: Number(value("required_seconds")),
-                    rights_basis: value("rights_basis"), rights_reference: value("rights_reference")};
+                    rights_basis: value("rights_basis"), rights_reference: value("rights_reference"), media_url: value("media_url")};
             }),
         };
         const path = `/api/courses/${courseId}/revisions`;
@@ -371,6 +386,7 @@ async function showCohort(id, after = 0) {
             block("div", "metrics", metric("占用席位", `${cohort.occupied} / ${cohort.capacity}`), metric("候补人数", cohort.waitlisted)))];
         if (manages()) {
             actions.append(button("调整招生", () => editCohort(cohort)));
+            actions.append(button("配置直播出勤", () => showLiveBindings(cohort)));
             if (cohort.registration_open) actions.append(button("代学员报名", () => enrollLearner(cohort.id), "primary"));
             const page = await api(`/api/cohorts/${id}/enrollments?after=${after}`);
             const rows = page.items.map((item) => [item.learner_name, item.learner_id, badge(item.state),
@@ -429,6 +445,9 @@ async function showEnrollment(id, roster = null) {
         const item = await api(`/api/enrollments/${id}`);
         const cohort = await api(`/api/cohorts/${item.cohort_id}`);
         const actions = element("div", null, "toolbar");
+        if (!["waitlisted", "reserved"].includes(item.state)) {
+            actions.append(button("学习进度", () => showStudySummary(item, cohort, roster)));
+        }
         if (["enrolled", "studying", "completed"].includes(item.state)) {
             actions.append(button("查看课程材料", () => showRevision(cohort.course_id, cohort.revision_id, roster ? null : item.id), "primary"));
         }
@@ -509,7 +528,10 @@ $("login-form").addEventListener("submit", (event) => {
     }, $("login-message"));
 });
 
-$("logout").addEventListener("click", () => void run($("logout"), async () => showSession(await api("/api/logout", "POST"))));
+$("logout").addEventListener("click", () => void run($("logout"), async () => {
+    finishStudy();
+    await showSession(await api("/api/logout", "POST"));
+}));
 $("dialog-close").addEventListener("click", () => $("dialog").close());
 $("dialog").addEventListener("cancel", (event) => {
     if ($("dialog-submit").disabled) event.preventDefault();

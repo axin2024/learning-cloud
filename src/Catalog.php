@@ -132,9 +132,11 @@ final readonly class Catalog
         if (!$manage && !$this->ownsLearningMaterial($actor, $revisionId)) {
             throw new Problem(404, 'revision_not_found');
         }
-        $rights = $manage ? ', rights_basis, rights_reference' : '';
+        $rights = $manage ? ', c.rights_basis, c.rights_reference' : '';
         $revision['chapters'] = $this->store->all(
-            'SELECT id, ordinal, title, kind, content, duration_seconds, required_seconds' . $rights . ' FROM chapters WHERE tenant_id=? AND revision_id=? ORDER BY ordinal',
+            'SELECT c.id, c.ordinal, c.title, c.kind, c.content, c.duration_seconds, c.required_seconds, m.media_url' . $rights . '
+               FROM chapters c LEFT JOIN chapter_media m ON m.tenant_id=c.tenant_id AND m.chapter_id=c.id
+              WHERE c.tenant_id=? AND c.revision_id=? ORDER BY c.ordinal',
             [$actor->tenantId, $revisionId]
         );
         return $revision;
@@ -216,16 +218,23 @@ final readonly class Catalog
                 throw new Problem(422, 'invalid_input', ['field' => 'chapters']);
             }
             $duration = Input::integer($chapter, 'duration_seconds', 1, 86_400);
+            $kind = Input::choice($chapter, 'kind', ['text', 'recorded', 'live']);
+            $media = Input::string(['media_url' => $chapter['media_url'] ?? ''], 'media_url', 2048, 0);
+            if ($media !== '' && ($kind !== 'recorded' || !filter_var($media, FILTER_VALIDATE_URL)
+                || parse_url($media, PHP_URL_SCHEME) !== 'https' || parse_url($media, PHP_URL_USER) !== null
+                || parse_url($media, PHP_URL_PASS) !== null)) {
+                throw new Problem(422, 'invalid_recorded_media_url');
+            }
             $possible += $duration;
-            $chapters[] = [
+            $chapters[] = ['media_url' => $media, 'fields' => [
                 Input::string($chapter, 'title', 200),
-                Input::choice($chapter, 'kind', ['text', 'recorded', 'live']),
+                $kind,
                 Input::string($chapter, 'content', 12_000),
                 $duration,
                 Input::integer($chapter, 'required_seconds', 0, $duration),
                 Input::choice($chapter, 'rights_basis', ['unverified', 'original', 'licensed', 'public_domain']),
                 Input::string($chapter, 'rights_reference', 500, 0),
-            ];
+            ]];
         }
         if ($fields[2] > $possible) {
             throw new Problem(422, 'study_time_exceeds_course_duration', ['available_seconds' => $possible]);
@@ -236,10 +245,13 @@ final readonly class Catalog
     private function saveChapters(int $tenantId, int $revisionId, array $chapters): void
     {
         foreach ($chapters as $index => $chapter) {
-            $this->store->execute(
+            $chapterId = $this->store->insert(
                 'INSERT INTO chapters (tenant_id, revision_id, ordinal, title, kind, content, duration_seconds, required_seconds, rights_basis, rights_reference) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)',
-                [$tenantId, $revisionId, $index + 1, ...$chapter]
+                [$tenantId, $revisionId, $index + 1, ...$chapter['fields']]
             );
+            if ($chapter['media_url'] !== '') {
+                $this->store->execute('INSERT INTO chapter_media (tenant_id, chapter_id, media_url) VALUES (?, ?, ?)', [$tenantId, $chapterId, $chapter['media_url']]);
+            }
         }
     }
 }

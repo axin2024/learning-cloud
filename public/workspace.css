@@ -77,6 +77,9 @@ tr:last-child td { border-bottom: 0; }
 .materials { display: grid; gap: 14px; }
 .material { margin: 0; }
 .material p { margin-top: 7px; color: var(--muted); white-space: pre-wrap; overflow-wrap: anywhere; }
+.material video { display: block; width: 100%; max-width: 860px; margin: 14px 0; background: #121c19; border-radius: 8px; }
+.material .toolbar { margin-top: 14px; }
+.display-code { display: block; margin-block: 12px; font-family: ui-monospace, monospace; overflow-wrap: anywhere; }
 .message { border: 1px solid #bdd9cc; background: var(--green-soft); color: var(--green-dark); padding: 10px 13px; border-radius: 8px; margin: 0 0 14px; overflow-wrap: anywhere; }
 .message.error { border-color: #f0c8bd; background: var(--red-soft); color: var(--red); }
 

@@ -7,12 +7,12 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-if (PHP_SAPI === 'cli-server' && in_array($path, ['/workspace.css', '/workspace.js', '/enterprise.js'], true)) {
+if (PHP_SAPI === 'cli-server' && in_array($path, ['/workspace.css', '/workspace.js', '/enterprise.js', '/study.js'], true)) {
     return false;
 }
 header('X-Content-Type-Options: nosniff');
 header('Referrer-Policy: no-referrer');
-header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
+header("Content-Security-Policy: default-src 'self'; script-src 'self'; style-src 'self'; media-src 'self' https:; object-src 'none'; base-uri 'none'; frame-ancestors 'none'; form-action 'self'");
 if ($method === 'GET' && $path === '/') {
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store');
