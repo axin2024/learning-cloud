@@ -38,11 +38,11 @@ def purchase(client, url, course, total, code, *, expired=False, status=201):
                                         ends_on=(today + timedelta(days=-1 if expired else 1)).isoformat()), status)
 
 
-def race(identity, requests):
+def race(identity, requests, executable=FIXTURE):
     processes = []
     try:
         for _ in requests:
-            process = subprocess.Popen([*FIXTURE, "race", *map(str, identity)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            process = subprocess.Popen([*executable, "race", *map(str, identity)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, text=True, encoding="utf-8")
             processes.append(process)
         for process in processes:

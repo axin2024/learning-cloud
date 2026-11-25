@@ -85,6 +85,10 @@ final class Http
                 $assignments = new AssignmentCatalog($store, $staff, $audit);
                 $coursework = new Coursework($store, $assignments, $staff, $audit);
                 [$status, $result] = $this->coursework($actor, $staff, $assignments, $coursework, $method, $path, $input);
+            } elseif (str_starts_with($path, '/api/exams/')) {
+                $staff = new TeachingStaff($store, $accounts, $audit);
+                $papers = new ExamCatalog($store, $staff, $audit);
+                [$status, $result] = $this->exams($actor, $papers, new Exams($store, $papers, $staff, $audit), $method, $path, $input);
             } else {
                 [$status, $result] = $this->dispatch($actor, $accounts, $catalog, $admissions, $method, $path, $input);
             }
@@ -344,6 +348,61 @@ final class Http
             $submission = $this->id($parts[1]);
             $result = $parts[2] === 'grade' ? $coursework->grade($actor, $submission, $input) : $coursework->allowReturn($actor, $submission, $input);
             return [$result['replayed'] ? 200 : 201, $result];
+        }
+        $this->notFound();
+    }
+
+    private function exams(Actor $actor, ExamCatalog $catalog, Exams $exams, string $method, string $path, array $input): array
+    {
+        if (preg_match('~\A/api/exams/courses/([1-9][0-9]*)/papers\z~', $path, $parts)) {
+            $course = $this->id($parts[1]);
+            return match ($method) {
+                'GET' => [200, $catalog->papers($actor, $course, $this->cursor())],
+                'POST' => [201, $catalog->draft($actor, $course, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if (preg_match('~\A/api/exams/papers/([1-9][0-9]*)(/publish)?\z~', $path, $parts)) {
+            $paper = $this->id($parts[1]);
+            return match ([$method, isset($parts[2])]) {
+                ['GET', false] => [200, $catalog->paper($actor, $paper)],
+                ['PUT', false] => [200, $catalog->edit($actor, $paper, $input)],
+                ['POST', true] => [200, $catalog->publish($actor, $paper, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if (preg_match('~\A/api/exams/cohorts/([1-9][0-9]*)/sittings\z~', $path, $parts)) {
+            $cohort = $this->id($parts[1]);
+            return match ($method) {
+                'GET' => [200, $catalog->sittings($actor, $cohort)],
+                'POST' => [201, $catalog->schedule($actor, $cohort, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if ($method === 'GET' && preg_match('~\A/api/exams/sittings/([1-9][0-9]*)/attempts\z~', $path, $parts)) {
+            return [200, $exams->roster($actor, $this->id($parts[1]), $this->cursor())];
+        }
+        if (preg_match('~\A/api/exams/enrollments/([1-9][0-9]*)(?:/sittings/([1-9][0-9]*)/start)?\z~', $path, $parts)) {
+            $enrollment = $this->id($parts[1]);
+            if ($method === 'GET' && !isset($parts[2])) {
+                return [200, $exams->enrollment($actor, $enrollment)];
+            }
+            if ($method === 'POST' && isset($parts[2])) {
+                $result = $exams->start($actor, $enrollment, $this->id($parts[2]));
+                return [$result['replayed'] ? 200 : 201, $result];
+            }
+        }
+        if (preg_match('~\A/api/exams/attempts/([1-9][0-9]*)(?:/(answers|submit|marking|grade))?\z~', $path, $parts)) {
+            $id = $this->id($parts[1]);
+            $action = $parts[2] ?? '';
+            return match ([$method, $action]) {
+                ['GET', ''] => [200, $exams->detail($actor, $id, false)],
+                ['GET', 'marking'] => [200, $exams->detail($actor, $id, true)],
+                ['PUT', 'answers'] => [200, $exams->save($actor, $id, $input)],
+                ['POST', 'submit'] => [200, $exams->submit($actor, $id, $input)],
+                ['POST', 'grade'] => [200, $exams->grade($actor, $id, $input)],
+                default => $this->notFound(),
+            };
         }
         $this->notFound();
     }

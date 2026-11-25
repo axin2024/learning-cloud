@@ -47,6 +47,16 @@ const errorLabels = {
     enrollment_cannot_submit_coursework: "当前报名状态无法提交作业。",
     submission_already_graded: "此版本的评分已发布，请刷新查看。", submission_is_not_latest: "作业已有新版本，请从最新版本授权重交。",
     return_expiry_must_be_future: "授权截止时间须晚于当前时间。", assignment_return_already_open: "此版本已有有效的重交授权。",
+    exam_paper_version_conflict: "试卷草稿已有更新，请重新打开。", exam_paper_already_published: "已发布的试卷无法编辑，可以从该版新建草稿。",
+    exam_points_must_total_100: "试卷抽题后的总分须为 100。", exam_answer_key_required: "选择题须设置正确选项。",
+    exam_option_must_be_one_line: "每个选项占一行。", duplicate_exam_options: "选项内容不能重复。",
+    duplicate_exam_choice: "选项编号不能重复。", exam_bank_too_large: "每版题库最多 300 道题。",
+    invalid_exam_window: "请检查场次开始、截止与当前时间。", exam_sittings_overlap: "补考时间须在前一场次结束之后。",
+    published_course_paper_required: "请选择这门课程已发布的试卷。", exam_sitting_unavailable: "当前不在该场次的开考时段内。",
+    exam_retake_requires_prior_grade: "参加补考前须获得该班期时序更早的成绩。",
+    exam_answers_closed: "本场答题已经截止，请打开服务器保存的答卷。",
+    exam_answer_version_conflict: "服务器有更新的答卷，请重新打开后继续。", enrollment_cannot_take_exam: "当前报名状态无法参加考试。",
+    exam_attempt_not_submitted: "交卷后才能查阅答卷。", exam_attempt_already_graded: "这份答卷已完成阅卷，请重新打开。",
 };
 
 let actor = null;
@@ -272,7 +282,9 @@ async function showCourse(id) {
             button(revision.title, () => showRevision(id, revision.id), "row-link"), `v${revision.revision}`,
             badge(revision.published_at ? "published" : "draft"), revision.published_at || "—",
         ]);
-        return [back("课程目录", showCourses), heading(course.slug, "", button("新建修订", () => editRevision(id), "primary")),
+        const actions = block("div", "toolbar", button("新建修订", () => editRevision(id), "primary"),
+            button("课程题库", () => showExamPapers(course)));
+        return [back("课程目录", showCourses), heading(course.slug, "", actions),
             block("div", "surface", table(["版本标题", "版本", "状态", "发布时间（UTC）"], rows, "该课程尚无修订。"))];
     });
 }
@@ -398,6 +410,7 @@ async function showCohort(id, after = 0) {
             actions.append(button("调整招生", () => editCohort(cohort)));
             actions.append(button("配置直播出勤", () => showLiveBindings(cohort)));
             actions.append(button("班期作业", () => showCohortCoursework(cohort)), button("教学成员", () => showTeachingStaff(cohort)));
+            actions.append(button("考试场次", () => showExamSittings(cohort)));
             if (cohort.registration_open) actions.append(button("代学员报名", () => enrollLearner(cohort.id), "primary"));
             const page = await api(`/api/cohorts/${id}/enrollments?after=${after}`);
             const rows = page.items.map((item) => [item.learner_name, item.learner_id, badge(item.state),
@@ -460,6 +473,7 @@ async function showEnrollment(id, roster = null) {
             actions.append(button("学习进度", () => showStudySummary(item, cohort, roster)));
         }
         if (!roster && item.enrolled_at) actions.append(button("作业与评分", () => showMyCoursework(item)));
+        if (!roster && item.enrolled_at) actions.append(button("考试与成绩", () => showMyExams(item)));
         if (["enrolled", "studying", "completed"].includes(item.state)) {
             actions.append(button("查看课程材料", () => showRevision(cohort.course_id, cohort.revision_id, roster ? null : item.id), "primary"));
         }
