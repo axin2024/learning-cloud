@@ -1,0 +1,62 @@
+x-learning-env: &learning-env
+  LEARNING_DSN: "mysql:host=db;port=3306;dbname=${LEARNING_DB_NAME:-learning_cloud};charset=utf8mb4"
+  LEARNING_DB_USER: "${LEARNING_DB_USER:-learning_cloud}"
+  LEARNING_DB_PASSWORD: "${LEARNING_DB_PASSWORD:?set LEARNING_DB_PASSWORD}"
+  LEARNING_COOKIE_SECURE: "${LEARNING_COOKIE_SECURE:-1}"
+
+services:
+  db:
+    image: mysql:8.4
+    environment:
+      MYSQL_DATABASE: "${LEARNING_DB_NAME:-learning_cloud}"
+      MYSQL_USER: "${LEARNING_DB_USER:-learning_cloud}"
+      MYSQL_PASSWORD: "${LEARNING_DB_PASSWORD:?set LEARNING_DB_PASSWORD}"
+      MYSQL_ROOT_PASSWORD: "${LEARNING_MYSQL_ROOT_PASSWORD:?set LEARNING_MYSQL_ROOT_PASSWORD}"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    healthcheck:
+      test: ["CMD-SHELL", 'MYSQL_PWD="$$MYSQL_PASSWORD" mysql --protocol=tcp -h 127.0.0.1 -u "$$MYSQL_USER" "$$MYSQL_DATABASE" -e "SELECT 1"']
+      interval: 5s
+      timeout: 4s
+      retries: 24
+    restart: unless-stopped
+
+  migrate:
+    build: .
+    image: learning-cloud:local
+    environment: *learning-env
+    depends_on:
+      db:
+        condition: service_healthy
+    command: ["php", "bin/learning.php", "migrate"]
+
+  web:
+    image: learning-cloud:local
+    pull_policy: never
+    environment: *learning-env
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    ports:
+      - "127.0.0.1:${LEARNING_HTTP_PORT:-8080}:80"
+    healthcheck:
+      test: ["CMD", "php", "-r", "$$response = @file_get_contents('http://127.0.0.1/healthz'); exit((json_decode($$response ?: '{}', true)['ready'] ?? false) ? 0 : 1);"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+    restart: unless-stopped
+
+  worker:
+    image: learning-cloud:local
+    pull_policy: never
+    environment:
+      <<: *learning-env
+      LEARNING_SWEEP_INTERVAL: "${LEARNING_SWEEP_INTERVAL:-30}"
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+    command: ["/bin/sh", "/usr/local/bin/learning-cloud-sweep"]
+    restart: unless-stopped
+
+volumes:
+  mysql-data:

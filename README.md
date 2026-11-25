@@ -2,7 +2,14 @@
 
 Learning Cloud 面向职业教育机构和企业培训部门，使用 PHP 和 MySQL 8.4。课程版本绑定班期，班期统一管理报名、席位、候补和换班。企业按合同采购课程席位，企业管理员按部门分配，学员激活后获得对应班期的报名资格。学员可继续阅读或播放录播，直播出勤可由已绑定的平台回传。班期作业支持按评分项给分、行内批注和授权重交。考试从发布的题库组卷，支持答题续接、到时收卷和独立补考场次。教务按学时、必修作业和考试成绩审核结业，签发可匿名查验的证书，证书到期后进入复训流程。
 
-## 本地运行
+## 运行与演示
+
+- [自托管部署、健康检查与升级](docs/deployment.md)
+- [配置参考](docs/configuration.md)
+- [从空库到一张可查验证书的演示](docs/demo.md)
+- [备份与恢复](docs/backup-and-restore.md)
+
+### 本机开发
 
 准备 PHP 8.2 或更高版本、PDO MySQL 和 mbstring，在 MySQL 8.4 建立空库和专用数据库账号。设置 [.env.example](.env.example) 中的环境变量。仅在本机 HTTP 上演练时将 `LEARNING_COOKIE_SECURE` 设为 `0`。
 
@@ -27,10 +34,14 @@ php -S 127.0.0.1:8080 -t public public/index.php
 - [状态与操作契约](docs/requirements/06-状态与操作契约-prd.md)
 - [开源项目说明与使用案例](docs/requirements/07-开源项目说明与使用案例-prd.md)
 
-## 开发进度
+## 功能与验收
 
-当前开发版本覆盖租户与课程、班期与招生、企业购课、学习过程、作业与辅导、题库与考试、证书与复训、学习路径和经营报表。各业务域的实测结果和重跑方式见 [验收记录](docs/acceptance.md)。
+首版覆盖租户与课程、班期与招生、企业购课、学习过程、作业与辅导、题库与考试、证书与复训、学习路径和经营报表。各业务域的实测结果和重跑方式见 [验收记录](docs/acceptance.md)。
+
+课程以文本、外部 HTTPS 录播地址和直播出勤回调交付。直播适配由部署者把供应商事件映射到平台回调契约。企业席位以合同台账登记，付款及发票由外部系统处理。当前 Compose 配置使用单实例 Web 和本地 PHP 会话存储。
+
+贡献、支持版本和安全反馈见 [贡献指南](CONTRIBUTING.md)、[变更记录](CHANGELOG.md) 与 [安全政策](SECURITY.md)。
 
 ## 许可
 
-项目采用 [Apache License 2.0](LICENSE)。示例数据和第三方组件说明见 [NOTICE](NOTICE)。
+项目采用 [Apache License 2.0](LICENSE)。示例权利和第三方组件见 [素材与依赖](docs/asset-rights.md) 与 [NOTICE](NOTICE)。

@@ -38,9 +38,9 @@ final class Schema
                 if (isset($existing[$version])) {
                     continue;
                 }
-                $sql = file_get_contents($this->directory() . '/' . $version . '.sql');
-                if ($sql === false || hash('sha256', $sql) !== $checksum) {
-                    throw new RuntimeException("Migration could not be read or changed during execution: $version");
+                $sql = $this->readMigration($this->directory() . '/' . $version . '.sql');
+                if (hash('sha256', $sql) !== $checksum) {
+                    throw new RuntimeException("Migration changed during execution: $version");
                 }
                 foreach (preg_split('/;[ \t]*(?:\r?\n|$)/', trim($sql), -1, PREG_SPLIT_NO_EMPTY) as $statement) {
                     $this->store->execute(trim($statement));
@@ -67,7 +67,8 @@ final class Schema
     {
         $migrations = [];
         foreach (glob($this->directory() . '/*.sql') as $path) {
-            $migrations[basename($path, '.sql')] = hash_file('sha256', $path);
+            $sql = $this->readMigration($path);
+            $migrations[basename($path, '.sql')] = hash('sha256', $sql);
         }
         return $migrations;
     }
@@ -75,7 +76,21 @@ final class Schema
     private function existing(): array
     {
         $rows = $this->store->all('SELECT version, checksum FROM schema_migrations ORDER BY version');
-        return array_column($rows, 'checksum', 'version');
+        $history = array_column($rows, 'checksum', 'version');
+        foreach ($history as $version => $checksum) {
+            // Earlier Windows installations could have stored the checkout's CRLF digest.
+            if (!preg_match('/\A\d{3}_[a-z0-9_]+\z/', $version)) {
+                continue;
+            }
+            $path = $this->directory() . '/' . $version . '.sql';
+            if (is_file($path)) {
+                $sql = $this->readMigration($path);
+                if (hash('sha256', str_replace("\n", "\r\n", $sql)) === $checksum) {
+                    $history[$version] = hash('sha256', $sql);
+                }
+            }
+        }
+        return $history;
     }
 
     private function verifyHistory(array $migrations, array $existing): void
@@ -88,5 +103,14 @@ final class Schema
     private function directory(): string
     {
         return dirname(__DIR__) . '/database/migrations';
+    }
+
+    private function readMigration(string $path): string
+    {
+        $sql = file_get_contents($path);
+        if ($sql === false) {
+            throw new RuntimeException("Migration could not be read: $path");
+        }
+        return str_replace("\r\n", "\n", $sql);
     }
 }

@@ -74,3 +74,38 @@ jobs:
       - name: Read the HTTP log on failure
         if: failure()
         run: test ! -f storage/php.log || cat storage/php.log
+
+  self-hosted-demo:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    env:
+      LEARNING_DB_NAME: learning_demo_ci
+      LEARNING_DB_PASSWORD: compose-local-fixture-only
+      LEARNING_MYSQL_ROOT_PASSWORD: compose-local-root-only
+      LEARNING_COOKIE_SECURE: "0"
+      LEARNING_HTTP_PORT: "8088"
+      LEARNING_SWEEP_INTERVAL: "1"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - name: Build and start the published deployment
+        run: |
+          docker compose build migrate
+          docker compose up --wait --wait-timeout 150
+          curl --fail --silent http://127.0.0.1:8088/healthz | grep -Fx '{"ready":true}'
+          curl --fail --silent http://127.0.0.1:8088/verify | grep -q 'verification-form'
+          curl --fail --silent http://127.0.0.1:8088/workspace.js | grep 'showCohorts' >/dev/null
+      - name: Replay the installation walkthrough
+        run: openssl rand -hex 24 | python3 examples/harbor_demo.py http://127.0.0.1:8088 --compose
+      - name: Confirm the migration and background processes use the application
+        run: |
+          docker compose exec -T web php bin/learning.php migrate | grep -Fx '{"applied":[]}'
+          docker compose logs worker | grep -F '"exam_attempts_finalized"'
+          docker compose logs worker | grep -F '"retraining_tasks_created"'
+      - name: Read deployment logs on failure
+        if: failure()
+        run: docker compose logs --no-color
+      - name: Remove the isolated runner deployment
+        if: always()
+        run: docker compose down --volumes
