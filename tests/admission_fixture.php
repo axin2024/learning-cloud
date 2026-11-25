@@ -71,6 +71,17 @@ $adminId = (int) ($argv[3] ?? 0);
 $cohortId = (int) ($argv[4] ?? 0);
 $actor = $accounts->find($tenantId, $adminId);
 
+if ($mode === 'race') {
+    echo "ready\n";
+    fflush(STDOUT);
+    $input = json_decode((string) fgets(STDIN), true, 8, JSON_THROW_ON_ERROR);
+    $result = $admissions->transfer($actor, $cohortId, $input);
+    $events = $store->one("SELECT COUNT(*) AS total FROM audit_events
+        WHERE tenant_id=? AND object_type='enrollment' AND object_id=? AND action='transferred'", [$tenantId, $cohortId]);
+    report($result + ['transfer_events' => $events['total']]);
+    exit;
+}
+
 if ($mode === 'worker') {
     $key = $argv[5];
     $learners = array_map('intval', explode(',', $argv[6]));

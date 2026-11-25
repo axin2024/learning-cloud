@@ -20,6 +20,11 @@ const errorLabels = {
     registration_closed: "该班期已停止报名。", capacity_below_occupancy: "容量不能小于已经占用的席位。",
     cohort_version_conflict: "班期状态已有更新，请刷新后再改。", target_cohort_full: "目标班期已满，原报名仍然有效。",
     same_cohort: "请选择其他班期。", course_equivalence_required: "两个班期的课程版本不同，需要课程等价配置。",
+    equivalence_distinct_revisions_required: "请选择两个不同的发布版本。",
+    equivalence_published_revisions_required: "源和目标都须为本学习空间的已发布版本。",
+    equivalence_version_conflict: "映射已被更新。关闭窗口后重新打开，核对最新版本。",
+    invalid_equivalence_mapping: "请检查章节归属、重复章节和区间长度。",
+    transfer_requires_purchased_course: "企业席位只能换到采购合同对应课程的班期。",
     already_in_target_cohort: "该学员已在目标班期报名或候补。", account_exists: "此邮箱在当前空间已注册。",
     account_not_found: "当前空间没有该成员。", account_is_not_a_learner: "所选成员没有学员角色。",
     request_key_reused: "这个请求编号已用于其他内容，请重新发起。",
@@ -290,7 +295,8 @@ async function showCourse(id) {
             badge(revision.published_at ? "published" : "draft"), revision.published_at || "—",
         ]);
         const actions = block("div", "toolbar", button("新建修订", () => editRevision(id), "primary"),
-            button("课程题库", () => showExamPapers(course)));
+            button("课程题库", () => showExamPapers(course)),
+            button("学时等价", () => showEquivalenceSources(course)));
         return [back("课程目录", showCourses), heading(course.slug, "", actions),
             block("div", "surface", table(["版本标题", "版本", "状态", "发布时间（UTC）"], rows, "该课程尚无修订。"))];
     });
@@ -485,7 +491,8 @@ async function showEnrollment(id, roster = null) {
         if (["enrolled", "studying", "completed"].includes(item.state)) {
             actions.append(button("查看课程材料", () => showRevision(cohort.course_id, cohort.revision_id, roster ? null : item.id), "primary"));
         }
-        if (["enrolled", "studying"].includes(item.state)) actions.append(button("换班", () => chooseTransfer(item, cohort, roster)));
+        if (["enrolled", "studying"].includes(item.state)) actions.append(button("换班", () => chooseTransfer(item, roster)));
+        if (item.transferred_from_id || item.state === "transferred") actions.append(button("换班回执", () => showTransferHistory(item, cohort, roster)));
         if (["waitlisted", "reserved", "enrolled", "studying"].includes(item.state)) {
             actions.append(button(item.state === "waitlisted" ? "取消候补" : "申请退班", () => {
                 openForm(item.state === "waitlisted" ? "取消候补" : "确认退班", [element("p", `班期 ${cohort.name} · 报名 #${item.id}`)], async () => {
@@ -502,13 +509,14 @@ async function showEnrollment(id, roster = null) {
     });
 }
 
-async function chooseTransfer(item, cohort, roster) {
-    const choices = (await allPages("/api/cohorts")).filter((option) => option.id !== cohort.id && option.revision_id === cohort.revision_id && option.registration_open);
+async function chooseTransfer(item, roster) {
+    const choices = await allPages(`/api/enrollments/${item.id}/transfer-options`);
     if (!choices.length) {
-        setMessage($("notice"), "暂时没有开放报名的同版本班期。", true);
+        setMessage($("notice"), "暂时没有开放报名且符合换班条件的班期。", true);
         return;
     }
-    openForm("选择目标班期", [field("target_cohort_id", "目标班期", "select", "", {choices: [["", "选择班期"], ...choices.map((option) => [option.id, option.name])]})], async (form) => {
+    const options = choices.map((option) => [option.id, `${option.name} · ${option.title} v${option.revision}`]);
+    openForm("选择目标班期", [field("target_cohort_id", "目标班期", "select", "", {choices: [["", "选择班期"], ...options]})], async (form) => {
         const changed = await api(`/api/enrollments/${item.id}/transfer`, "POST", {target_cohort_id: Number(form.get("target_cohort_id"))});
         return async () => { await showEnrollment(changed.id, roster ? changed.cohort_id : null); success(`换班已完成，新报名 #${changed.id}。`); };
     }, "确认换班");

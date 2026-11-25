@@ -10,9 +10,11 @@ final readonly class Admissions
     private const COHORT_FIELDS = 'id, revision_id, code, name, starts_on, ends_on, capacity, registration_open, version';
     private const ENROLLMENT_FIELDS = 'id, cohort_id, learner_id, state, transferred_from_id, enrolled_at, closed_at, version';
     private const OCCUPIED = "'reserved','enrolled','studying','completed'";
+    private CourseEquivalences $equivalences;
 
     public function __construct(private Store $store, private Catalog $catalog, private Accounts $accounts, private Audit $audit)
     {
+        $this->equivalences = new CourseEquivalences($store, $audit);
     }
 
     public function createCohort(Actor $actor, array $input): array
@@ -201,8 +203,11 @@ final readonly class Admissions
             if (!$target['registration_open']) {
                 throw new Problem(409, 'registration_closed');
             }
-            if ($source['revision_id'] !== $target['revision_id']) {
-                throw new Problem(409, 'course_equivalence_required');
+            $rule = $source['revision_id'] === $target['revision_id'] ? null
+                : $this->equivalences->approved($actor->tenantId, $source['revision_id'], $target['revision_id']);
+            if ($rule !== null && $rule['source_course_id'] !== $rule['target_course_id']
+                && $this->wasEnterpriseFunded($actor->tenantId, $enrollmentId)) {
+                throw new Problem(409, 'transfer_requires_purchased_course');
             }
             if ($this->activeEnrollment($actor, $targetId, $enrollment['learner_id']) !== null) {
                 throw new Problem(409, 'already_in_target_cohort');
@@ -211,18 +216,82 @@ final readonly class Admissions
                 throw new Problem(409, 'target_cohort_full');
             }
             $newId = $this->insertEnrollment($actor, $targetId, $enrollment['learner_id'], 'enrolled', $enrollmentId);
-            $this->store->execute('INSERT INTO study_spans (tenant_id, enrollment_id, chapter_id, start_second, end_second)
-                SELECT tenant_id, ?, chapter_id, start_second, end_second FROM study_spans WHERE tenant_id=? AND enrollment_id=?',
-                [$newId, $actor->tenantId, $enrollmentId]);
-            if ($enrollment['state'] === 'studying') {
+            $seconds = $this->equivalences->copyStudy($actor->tenantId, $enrollmentId, $newId, $rule);
+            if ($seconds > 0 || ($rule === null && $enrollment['state'] === 'studying')) {
                 $this->store->execute("UPDATE enrollments SET state='studying' WHERE tenant_id=? AND id=?", [$actor->tenantId, $newId]);
             }
+            $snapshot = $this->gradeSnapshot($actor->tenantId, $enrollmentId);
+            $this->store->execute('INSERT INTO enrollment_transfers (tenant_id, source_enrollment_id, target_enrollment_id, equivalence_id,
+                equivalence_snapshot, grade_snapshot, credited_seconds) VALUES (?, ?, ?, ?, ?, ?, ?)',
+                [$actor->tenantId, $enrollmentId, $newId, $rule['id'] ?? null,
+                    $rule === null ? null : json_encode($rule, JSON_THROW_ON_ERROR), $snapshot, $seconds]);
             $this->close($actor, $enrollmentId, 'transferred');
             $promoted = $this->promote($actor, $sourceId, 1);
-            $this->audit->record($actor, 'enrollment', $enrollmentId, 'transferred', ['target_enrollment_id' => $newId, 'promoted' => $promoted]);
+            $this->audit->record($actor, 'enrollment', $enrollmentId, 'transferred', ['target_enrollment_id' => $newId, 'promoted' => $promoted,
+                'equivalence_id' => $rule['id'] ?? null, 'equivalence_version' => $rule['version'] ?? null, 'credited_seconds' => $seconds]);
             $this->audit->record($actor, 'enrollment', $newId, 'transfer_received', ['from_enrollment_id' => $enrollmentId]);
             return $this->detail($actor, $newId);
         });
+    }
+
+    public function transferOptions(Actor $actor, int $enrollmentId, int $after): array
+    {
+        $enrollment = $this->ownOrManaged($actor, $enrollmentId);
+        $source = $this->cohort($actor, $enrollment['cohort_id']);
+        $enterprise = $this->wasEnterpriseFunded($actor->tenantId, $enrollmentId);
+        $rows = $this->store->all('SELECT c.id, c.name, v.title, v.revision, c.revision_id
+            FROM cohorts c JOIN course_revisions v ON v.tenant_id=c.tenant_id AND v.id=c.revision_id
+            LEFT JOIN course_equivalences q ON q.tenant_id=c.tenant_id AND q.source_revision_id=?
+                AND q.target_revision_id=c.revision_id AND q.enabled
+            WHERE c.tenant_id=? AND c.id>? AND c.id<>? AND c.registration_open AND (c.revision_id=? OR q.id IS NOT NULL)
+                AND (NOT ? OR v.course_id=?) ORDER BY c.id LIMIT 51',
+            [$source['revision_id'], $actor->tenantId, $after, $source['id'], $source['revision_id'], $enterprise, $source['course_id']]);
+        return $this->page($rows);
+    }
+
+    public function transferHistory(Actor $actor, int $id): array
+    {
+        $enrollment = $this->ownOrManaged($actor, $id);
+        $rows = $this->store->all("SELECT src.id AS source_enrollment_id, dst.id AS target_enrollment_id,
+                src.cohort_id AS source_cohort_id, dst.cohort_id AS target_cohort_id, src.closed_at AS transferred_at,
+                s.credited_seconds, s.equivalence_snapshot, s.grade_snapshot
+            FROM enrollments dst JOIN enrollments src ON src.tenant_id=dst.tenant_id AND src.id=dst.transferred_from_id
+            LEFT JOIN enrollment_transfers s ON s.tenant_id=src.tenant_id AND s.source_enrollment_id=src.id
+            WHERE dst.tenant_id=? AND (dst.id=? OR src.id=?) AND dst.learner_id=? ORDER BY dst.id",
+            [$actor->tenantId, $id, $id, $enrollment['learner_id']]);
+        foreach ($rows as &$row) {
+            foreach (['grade_snapshot', 'equivalence_snapshot'] as $field) {
+                $row[$field] = $row[$field] === null ? null : json_decode($row[$field], true, 32, JSON_THROW_ON_ERROR);
+            }
+        }
+        unset($row);
+        return ['items' => $rows];
+    }
+
+    private function wasEnterpriseFunded(int $tenant, int $enrollment): bool
+    {
+        return $this->store->one('WITH RECURSIVE lineage AS (
+                SELECT id, transferred_from_id FROM enrollments WHERE tenant_id=? AND id=?
+                UNION ALL SELECT e.id, e.transferred_from_id FROM enrollments e
+                    JOIN lineage l ON l.transferred_from_id=e.id WHERE e.tenant_id=?
+            ) SELECT a.id FROM lineage l JOIN seat_assignments a ON a.tenant_id=? AND a.enrollment_id=l.id LIMIT 1',
+            [$tenant, $enrollment, $tenant, $tenant]) !== null;
+    }
+
+    private function gradeSnapshot(int $tenant, int $enrollment): string
+    {
+        // One statement captures both grade sets at the same consistent read point.
+        return $this->store->one("SELECT JSON_OBJECT(
+            'exams', COALESCE((SELECT JSON_ARRAYAGG(JSON_OBJECT('attempt_id', a.id, 'sitting_id', s.id,
+                'title', s.title, 'sequence', s.sequence, 'score', a.score, 'pass_score', s.pass_score, 'retake_mode', s.retake_mode))
+                FROM exam_attempts a JOIN exam_sittings s ON s.tenant_id=a.tenant_id AND s.id=a.sitting_id
+                WHERE a.tenant_id=e.tenant_id AND a.enrollment_id=e.id AND a.graded_at IS NOT NULL), JSON_ARRAY()),
+            'coursework', COALESCE((SELECT JSON_ARRAYAGG(JSON_OBJECT('submission_id', s.id, 'assignment_id', a.id,
+                'title', a.title, 'revision', s.revision, 'score', g.score))
+                FROM coursework_submissions s JOIN coursework_grades g ON g.tenant_id=s.tenant_id AND g.submission_id=s.id
+                JOIN coursework_assignments a ON a.tenant_id=s.tenant_id AND a.id=s.assignment_id
+                WHERE s.tenant_id=e.tenant_id AND s.enrollment_id=e.id), JSON_ARRAY())) AS grades
+            FROM enrollments e WHERE e.tenant_id=? AND e.id=?", [$tenant, $enrollment])['grades'];
     }
 
     public function detail(Actor $actor, int $enrollmentId): array

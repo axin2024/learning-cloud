@@ -79,7 +79,16 @@ final class Http
             $actor = $accounts->find(...$principal);
             $catalog = new Catalog($store, $audit);
             $admissions = new Admissions($store, $catalog, $accounts, $audit);
-            if (preg_match('~\A/api/(?:companies(?:/|\z)|me/seat-assignments\z|seat-assignments/)~', $path)) {
+            if (preg_match('~\A/api/course-equivalences/([1-9][0-9]*)/([1-9][0-9]*)\z~', $path, $pair)) {
+                $equivalences = new CourseEquivalences($store, $audit);
+                $source = $this->id($pair[1]);
+                $target = $this->id($pair[2]);
+                [$status, $result] = match ($method) {
+                    'GET' => [200, $equivalences->detail($actor, $source, $target)],
+                    'PUT' => [200, $equivalences->save($actor, $source, $target, $input)],
+                    default => $this->notFound(),
+                };
+            } elseif (preg_match('~\A/api/(?:companies(?:/|\z)|me/seat-assignments\z|seat-assignments/)~', $path)) {
                 $companies = new Companies($store, $accounts, $audit);
                 $seats = new SeatPurchases($store, $companies, $admissions, $audit);
                 [$status, $result] = $this->enterprise($actor, $companies, $seats, $method, $path, $input);
@@ -174,12 +183,14 @@ final class Http
         if ($path === '/api/me/enrollments' && $method === 'GET') {
             return [200, $admissions->mine($actor, $this->cursor())];
         }
-        if (preg_match('~\A/api/enrollments/([1-9][0-9]*)(?:/(withdraw|transfer))?\z~', $path, $parts)) {
+        if (preg_match('~\A/api/enrollments/([1-9][0-9]*)(?:/(withdraw|transfer|transfer-options))?\z~', $path, $parts)) {
             $id = $this->id($parts[1]);
             return match ($method . '/' . ($parts[2] ?? '')) {
                 'GET/' => [200, $admissions->detail($actor, $id)],
                 'POST/withdraw' => [200, $admissions->withdraw($actor, $id)],
                 'POST/transfer' => [200, $admissions->transfer($actor, $id, $input)],
+                'GET/transfer' => [200, $admissions->transferHistory($actor, $id)],
+                'GET/transfer-options' => [200, $admissions->transferOptions($actor, $id, $this->cursor())],
                 default => $this->notFound(),
             };
         }

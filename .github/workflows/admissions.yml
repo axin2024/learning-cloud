@@ -48,6 +48,7 @@ jobs:
           node --check public/exams.js
           node --check public/credentials.js
           node --check public/verify.js
+          node --check public/transfers.js
           composer validate --no-check-publish --no-interaction
           php bin/learning.php migrate
           php bin/learning.php migrate | grep -Fx '{"applied":[]}'
@@ -63,6 +64,7 @@ jobs:
           python3 tests/admission_concurrency.py
           python3 tests/enterprise_seats.py http://127.0.0.1:8088
           python3 tests/study_http.py http://127.0.0.1:8088
+          python3 tests/transfers_http.py http://127.0.0.1:8088
           python3 tests/coursework_http.py http://127.0.0.1:8088
           python3 tests/exams_http.py http://127.0.0.1:8088
           python3 tests/credentials_http.py http://127.0.0.1:8088
