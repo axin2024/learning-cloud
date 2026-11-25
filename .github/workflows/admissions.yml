@@ -1,0 +1,60 @@
+name: Admissions and MySQL
+
+on:
+  push:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  admissions:
+    runs-on: ubuntu-latest
+    timeout-minutes: 8
+    services:
+      mysql:
+        image: mysql:8.4
+        env:
+          MYSQL_DATABASE: learning_test_integration
+          MYSQL_USER: learning_fixture
+          MYSQL_PASSWORD: suite-local-fixture-only
+          MYSQL_ROOT_PASSWORD: suite-local-root-only
+        ports:
+          - 33126:3306
+        options: >-
+          --health-cmd="mysql --protocol=tcp -h 127.0.0.1 -u learning_fixture -psuite-local-fixture-only learning_test_integration -e 'SELECT 1'"
+          --health-interval=4s --health-timeout=5s --health-retries=30
+    env:
+      LEARNING_DSN: mysql:host=127.0.0.1;port=33126;dbname=learning_test_integration;charset=utf8mb4
+      LEARNING_DB_USER: learning_fixture
+      LEARNING_DB_PASSWORD: suite-local-fixture-only
+      LEARNING_COOKIE_SECURE: "0"
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          persist-credentials: false
+      - uses: shivammathur/setup-php@v2
+        with:
+          php-version: "8.4"
+          extensions: mbstring, pdo_mysql
+          coverage: none
+      - name: Check the schema and application sources
+        run: |
+          find src bin public tests -name '*.php' -print0 | xargs -0 -n1 php -l
+          node --check public/workspace.js
+          composer validate --no-check-publish --no-interaction
+          php bin/learning.php migrate
+          php bin/learning.php migrate | grep -Fx '{"applied":[]}'
+          php bin/learning.php health
+      - name: Exercise HTTP and independent MySQL transactions
+        run: |
+          mkdir -p storage
+          php -S 127.0.0.1:8088 -t public public/index.php > storage/php.log 2>&1 &
+          server=$!
+          trap 'kill "$server" 2>/dev/null || true' EXIT
+          curl --fail --silent --retry 12 --retry-connrefused http://127.0.0.1:8088/healthz | grep -Fx '{"ready":true}'
+          python3 tests/admission_http.py http://127.0.0.1:8088
+          python3 tests/admission_concurrency.py
+      - name: Read the HTTP log on failure
+        if: failure()
+        run: test ! -f storage/php.log || cat storage/php.log

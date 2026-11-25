@@ -1,0 +1,5 @@
+Learning Cloud
+
+The repository contains PHP source, database migrations and synthetic acceptance fixtures.
+PHP, MySQL and the tools used for acceptance are installed separately. The workbench uses system fonts.
+The project does not bundle third-party courseware, personal records or external media.

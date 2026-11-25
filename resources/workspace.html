@@ -1,0 +1,47 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Learning Cloud · 教学工作台</title>
+    <link rel="stylesheet" href="/workspace.css">
+    <script src="/workspace.js" defer></script>
+</head>
+<body>
+    <main id="entry" class="entry" hidden>
+        <section class="login-panel" aria-labelledby="login-title">
+            <div class="brand"><span class="brand-mark" aria-hidden="true">L</span>Learning Cloud</div>
+            <h1 id="login-title">登录教学工作台</h1>
+            <form id="login-form" class="form-stack">
+                <label>学习空间代码<input name="tenant" required maxlength="64" autocomplete="organization"></label>
+                <label>邮箱<input name="email" type="email" required autocomplete="username"></label>
+                <label>密码<input name="password" type="password" required autocomplete="current-password"></label>
+                <button class="primary" type="submit">登录</button>
+            </form>
+            <p id="login-message" class="message" role="alert" hidden></p>
+        </section>
+    </main>
+    <div id="workspace" class="workspace" hidden>
+        <header class="topbar">
+            <div class="brand"><span class="brand-mark" aria-hidden="true">L</span>Learning Cloud</div>
+            <div class="identity"><span id="identity"></span><button id="logout" type="button" class="quiet">退出</button></div>
+        </header>
+        <div class="work-area">
+            <nav id="navigation" class="rail" aria-label="工作台导航"></nav>
+            <main id="work-main" class="work-main">
+                <div id="notice" class="message" role="status" hidden></div>
+                <section id="content" aria-live="polite"></section>
+            </main>
+        </div>
+    </div>
+    <dialog id="dialog" aria-labelledby="dialog-title">
+        <div class="dialog-heading"><h2 id="dialog-title"></h2><button id="dialog-close" type="button" class="quiet" aria-label="关闭窗口">关闭</button></div>
+        <form id="dialog-form" class="form-stack">
+            <div id="dialog-fields" class="form-stack"></div>
+            <p id="dialog-message" class="message" role="alert" hidden></p>
+            <div class="dialog-actions"><button id="dialog-submit" class="primary" type="submit">保存</button></div>
+        </form>
+    </dialog>
+    <noscript><p>启用 JavaScript 后可使用教学工作台。</p></noscript>
+</body>
+</html>

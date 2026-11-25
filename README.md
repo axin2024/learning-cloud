@@ -1,6 +1,21 @@
 # 职业教育与企业培训平台
 
-Learning Cloud 是一个面向职业教育机构和企业培训部门的自托管平台，使用 PHP 和 MySQL 8.4。课程发布、班期招生、企业席位、学习认定、作业、考试、证书与运营报告围绕同一份学习资格运行。
+Learning Cloud 面向职业教育机构和企业培训部门，使用 PHP 和 MySQL 8.4。课程版本绑定班期，班期统一管理报名、席位、候补和换班。教务、学员和空间管理员从同一个工作台进入各自授权的操作。
+
+## 本地运行
+
+准备 PHP 8.2 或更高版本、PDO MySQL 和 mbstring，在 MySQL 8.4 建立空库和专用数据库账号。设置 [.env.example](.env.example) 中的环境变量。仅在本机 HTTP 上演练时将 `LEARNING_COOKIE_SECURE` 设为 `0`。
+
+```sh
+php bin/learning.php migrate
+php bin/learning.php health
+php bin/learning.php create-tenant harbor "港湾培训中心" admin@example.test "空间管理员"
+php -S 127.0.0.1:8080 -t public public/index.php
+```
+
+初始化命令从标准输入读取密码。交互终端会在收到回车前显示输入内容，自动化可通过标准输入传入密码。打开 `http://127.0.0.1:8080/`，用 `harbor` 和刚创建的管理员账号登录。在「成员」中创建学员，在「课程」中创建和发布课程修订，再打开「班期」创建席位。
+
+详细操作、HTTP 接口与可重跑验收见 [课程与招生](docs/admissions.md)。
 
 ## 产品需求
 
@@ -14,4 +29,8 @@ Learning Cloud 是一个面向职业教育机构和企业培训部门的自托�
 
 ## 开发进度
 
-当前仓库记录产品需求基线。第一阶段实现租户、课程发布版本、班期和报名。验收从两件事开始。已开班的学员可以继续使用绑定的课程版本。班期满员时维护候补顺序，退班释放的席位和首位候补的递补在同一事务完成。
+当前版本覆盖租户与课程、班期与招生。企业购课、学习过程、作业与辅导、题库与考试、证书与复训、经营与企业报告按产品需求继续交付。
+
+## 许可
+
+项目采用 [Apache License 2.0](LICENSE)。示例数据和第三方组件说明见 [NOTICE](NOTICE)。

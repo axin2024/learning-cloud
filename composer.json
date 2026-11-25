@@ -1,0 +1,14 @@
+{
+    "name": "learning-cloud/platform",
+    "description": "Self-hosted vocational education and enterprise training platform",
+    "type": "project",
+    "license": "Apache-2.0",
+    "require": {
+        "php": "^8.2",
+        "ext-mbstring": "*",
+        "ext-pdo_mysql": "*"
+    },
+    "autoload": {
+        "psr-4": {"LearningCloud\\": "src/"}
+    }
+}
