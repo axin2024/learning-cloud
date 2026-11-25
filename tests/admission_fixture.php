@@ -71,6 +71,15 @@ $adminId = (int) ($argv[3] ?? 0);
 $cohortId = (int) ($argv[4] ?? 0);
 $actor = $accounts->find($tenantId, $adminId);
 
+if ($mode === 'report-date') {
+    $actor->requireManagement();
+    $date = LearningCloud\Input::utcDateTime(['at' => $argv[5] ?? ''], 'at');
+    $changed = $store->execute("UPDATE enrollments SET enrolled_at=?, created_at=LEAST(created_at,?)
+        WHERE tenant_id=? AND id=? AND enrolled_at IS NOT NULL AND enrolled_at>?", [$date, $date, $tenantId, $cohortId, $date]);
+    report(['changed' => $changed]);
+    exit;
+}
+
 if ($mode === 'race') {
     echo "ready\n";
     fflush(STDOUT);

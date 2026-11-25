@@ -79,7 +79,20 @@ final class Http
             $actor = $accounts->find(...$principal);
             $catalog = new Catalog($store, $audit);
             $admissions = new Admissions($store, $catalog, $accounts, $audit);
-            if (preg_match('~\A/api/course-equivalences/([1-9][0-9]*)/([1-9][0-9]*)\z~', $path, $pair)) {
+            if ($method === 'GET' && $path === '/api/reports/courses') {
+                $reports = new Reports($store, new Companies($store, $accounts, $audit));
+                [$status, $result] = [200, $reports->courses($actor, $_GET, $this->cursor())];
+            } elseif ($method === 'GET' && preg_match('~\A/api/companies/([1-9][0-9]*)/reports/(departments|enrollments)\z~', $path, $report)) {
+                $reports = new Reports($store, new Companies($store, $accounts, $audit));
+                $company = $this->id($report[1]);
+                $result = match ($report[2]) {
+                    'departments' => $reports->departments($actor, $company, $_GET, $this->cursor()),
+                    'enrollments' => $reports->companyEnrollments($actor, $company, $_GET, $this->cursor()),
+                };
+                $status = 200;
+            } elseif ($path === '/api/learning-paths' || str_starts_with($path, '/api/learning-paths/')) {
+                [$status, $result] = $this->learningPaths($actor, new LearningPaths($store, $audit), $method, $path, $input);
+            } elseif (preg_match('~\A/api/course-equivalences/([1-9][0-9]*)/([1-9][0-9]*)\z~', $path, $pair)) {
                 $equivalences = new CourseEquivalences($store, $audit);
                 $source = $this->id($pair[1]);
                 $target = $this->id($pair[2]);
@@ -120,6 +133,30 @@ final class Http
             error_log('Learning Cloud request ' . $requestId . ' failed: ' . $error::class . ' [' . $error->getCode() . ']');
             $this->send(['error' => 'internal_error', 'request_id' => $requestId], 500);
         }
+    }
+
+    private function learningPaths(Actor $actor, LearningPaths $paths, string $method, string $path, array $input): array
+    {
+        if ($path === '/api/learning-paths') {
+            return match ($method) {
+                'GET' => [200, $paths->listing($actor, $this->cursor())],
+                'POST' => [201, $paths->create($actor, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if (preg_match('~\A/api/learning-paths/([1-9][0-9]*)(/publish)?\z~', $path, $parts)) {
+            $id = $this->id($parts[1]);
+            return match ($method . ($parts[2] ?? '')) {
+                'GET' => [200, $paths->detail($actor, $id)],
+                'PUT' => [200, $paths->edit($actor, $id, $input)],
+                'POST/publish' => [200, $paths->publish($actor, $id, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if ($method === 'GET' && preg_match('~\A/api/learning-paths/([1-9][0-9]*)/steps/([1-9][0-9]*)/cohorts\z~', $path, $parts)) {
+            return [200, $paths->stepCohorts($actor, $this->id($parts[1]), $this->id($parts[2]), $this->cursor())];
+        }
+        $this->notFound();
     }
 
     private function dispatch(Actor $actor, Accounts $accounts, Catalog $catalog, Admissions $admissions, string $method, string $path, array $input): array

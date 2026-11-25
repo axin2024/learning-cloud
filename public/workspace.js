@@ -25,6 +25,16 @@ const errorLabels = {
     equivalence_version_conflict: "映射已被更新。关闭窗口后重新打开，核对最新版本。",
     invalid_equivalence_mapping: "请检查章节归属、重复章节和区间长度。",
     transfer_requires_purchased_course: "企业席位只能换到采购合同对应课程的班期。",
+    learning_path_not_found: "当前账号无法查看此学习路径。",
+    learning_path_code_exists: "该学习路径代码已存在。",
+    learning_path_version_conflict: "学习路径已更新，请重新打开草稿。",
+    learning_path_already_published: "已发布的学习路径保留原有顺序。",
+    learning_path_courses_must_be_distinct: "请为每一步选择不同的课程。",
+    learning_path_requires_published_courses: "学习路径须使用本学习空间的已发布课程。",
+    path_step_course_mismatch: "请选择与发布步骤对应的课程。",
+    path_step_not_found: "未找到这一步的班期。",
+    path_prerequisites_required: "请先完成目标班期要求的先修课程。",
+    invalid_report_period: "请选择有效的起止日期，截止日须为今天或之前。",
     already_in_target_cohort: "该学员已在目标班期报名或候补。", account_exists: "此邮箱在当前空间已注册。",
     account_not_found: "当前空间没有该成员。", account_is_not_a_learner: "所选成员没有学员角色。",
     request_key_reused: "这个请求编号已用于其他内容，请重新发起。",
@@ -109,6 +119,7 @@ function errorMessage(error) {
     const message = errorLabels[reason] || "操作未完成，请根据回执检查当前状态。";
     let detail = "";
     if (Array.isArray(details.chapters)) detail = ` 缺少授权的章节 ${details.chapters.join("、")}。`;
+    if (Array.isArray(details.missing)) detail = ` 待完成 ${details.missing.map((course) => course.title).join("、")}。`;
     if (details.field) detail = ` 字段 ${details.field}。`;
     if (id && !errorLabels[reason]) detail += ` 请求编号 ${id}。`;
     return message + detail;
@@ -148,9 +159,10 @@ function manages() {
 
 function displayNavigation(current) {
     const entries = [["courses", "课程", showCourses], ["cohorts", "班期", showCohorts]];
+    if (manages() || actor.roles.includes("learner")) entries.push(["paths", "学习路径", showLearningPaths]);
     if (actor.roles.includes("learner")) entries.push(["mine", "我的报名", showMine], ["my-seats", "企业席位", showMySeats]);
     if (actor.roles.includes("admin") || actor.roles.includes("enterprise_admin")) entries.push(["companies", "企业购课", showCompanies]);
-    if (manages()) entries.push(["live", "直播出勤", showLiveHub]);
+    if (manages()) entries.push(["live", "直播出勤", showLiveHub], ["reports", "课程经营", showCourseReports]);
     if (actor.roles.includes("instructor")) entries.push(["teaching", "授课班期", showTeachingCohorts]);
     if (manages() || actor.roles.includes("learner")) entries.push(["retraining", "复训任务", showRetraining]);
     if (actor.roles.includes("admin")) entries.push(["accounts", "成员", showAccounts]);
@@ -389,26 +401,30 @@ async function showCohorts(after = 0) {
         const page = await api(`/api/cohorts?after=${after}`);
         const rows = page.items.map((cohort) => [button(cohort.name, () => showCohort(cohort.id), "row-link"),
             `${cohort.title} · v${cohort.revision}`, `${cohort.starts_on} – ${cohort.ends_on}`, cohort.capacity, badge(cohort.registration_open ? "open" : "closed")]);
-        return [heading("班期与招生", "", manages() ? button("新建班期", newCohort, "primary") : null),
+        return [heading("班期与招生", "", manages() ? button("新建班期", () => newCohort(), "primary") : null),
             paginated(["班期", "课程版本", "排期", "容量", "报名状态"], page, rows, "暂无班期。", after, showCohorts)];
     });
 }
 
-async function newCohort() {
-    const courses = (await allPages("/api/courses")).filter((course) => course.revision);
+async function newCohort(binding = null) {
+    const courses = (await allPages("/api/courses")).filter((course) => course.revision && (!binding || course.id === binding.step.course_id));
     if (!courses.length) {
         setMessage($("notice"), "发布至少一个课程版本后可以开设班期。", true);
         return;
     }
     openForm("新建班期", [
+        ...(binding ? [element("p", `${binding.path.title} · 第 ${binding.step.position} 步`, "meta")] : []),
         fields(field("name", "班期名称", "text", "", {maxlength: 160}), field("code", "班期代码", "text", "", {maxlength: 64})),
-        field("course_id", "课程（使用最新发布版本）", "select", "", {choices: [["", "选择已发布课程"], ...courses.map((course) => [course.id, `${course.title} · v${course.revision}`])]}),
+        field("course_id", "课程（使用最新发布版本）", "select", binding ? binding.step.course_id : "",
+            {choices: [["", "选择已发布课程"], ...courses.map((course) => [course.id, `${course.title} · v${course.revision}`])]}),
         fields(field("starts_on", "开始日期", "date"), field("ends_on", "结束日期", "date")),
         field("capacity", "席位容量", "number", 25, {min: 1, max: 10000}),
         block("div", "checks", field("registration_open", "立即开放报名", "checkbox", true, {required: false})),
     ], async (form) => {
-        const cohort = await api("/api/cohorts", "POST", {name: form.get("name"), code: form.get("code"), course_id: Number(form.get("course_id")),
-            starts_on: form.get("starts_on"), ends_on: form.get("ends_on"), capacity: Number(form.get("capacity")), registration_open: form.has("registration_open")});
+        const data = {name: form.get("name"), code: form.get("code"), course_id: Number(form.get("course_id")),
+            starts_on: form.get("starts_on"), ends_on: form.get("ends_on"), capacity: Number(form.get("capacity")), registration_open: form.has("registration_open")};
+        if (binding) data.path_step_id = binding.step.id;
+        const cohort = await api("/api/cohorts", "POST", data);
         return () => showCohort(cohort.id);
     }, "创建班期");
 }
@@ -419,6 +435,9 @@ async function showCohort(id, after = 0) {
         const actions = element("div", null, "toolbar");
         const sections = [block("div", "surface", badge(cohort.registration_open ? "open" : "closed"),
             block("div", "metrics", metric("占用席位", `${cohort.occupied} / ${cohort.capacity}`), metric("候补人数", cohort.waitlisted)))];
+        if (cohort.path) {
+            sections[0].append(button(`${cohort.path.title} · 第 ${cohort.path.position} 步`, () => showLearningPath(cohort.path.path_id), "row-link"));
+        }
         if (manages()) {
             actions.append(button("调整招生", () => editCohort(cohort)));
             actions.append(button("配置直播出勤", () => showLiveBindings(cohort)));
@@ -431,7 +450,10 @@ async function showCohort(id, after = 0) {
             sections.push(element("h2", "报名名册", "section-heading"),
                 paginated(["学员", "成员编号", "状态", "报名回执"], page, rows, "暂时没有报名。", after, (cursor) => showCohort(id, cursor)));
         }
-        if (actor.roles.includes("learner") && cohort.registration_open) {
+        if (cohort.missing_prerequisites.length) {
+            const titles = cohort.missing_prerequisites.map((course) => course.title);
+            sections[0].append(element("p", `报名需先完成 ${titles.join("、")}。`, "meta"));
+        } else if (actor.roles.includes("learner") && cohort.registration_open) {
             const label = cohort.occupied >= cohort.capacity ? "加入候补" : "立即报名";
             actions.append(button(label, async () => {
                 const enrollment = await enroll(cohort.id);

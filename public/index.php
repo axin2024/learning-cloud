@@ -8,7 +8,7 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
 if (PHP_SAPI === 'cli-server' && in_array($path, ['/workspace.css', '/workspace.js', '/enterprise.js', '/study.js', '/coursework.js',
-    '/exams.js', '/credentials.js', '/verify.js', '/transfers.js'], true)) {
+    '/exams.js', '/credentials.js', '/verify.js', '/transfers.js', '/learning-paths.js', '/reports.js'], true)) {
     return false;
 }
 header('X-Content-Type-Options: nosniff');

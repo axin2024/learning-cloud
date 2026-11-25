@@ -5,6 +5,7 @@ namespace LearningCloud;
 
 final readonly class Exams
 {
+    public const EFFECTIVE_ORDER = "CASE WHEN s.retake_mode='highest' THEN a.score ELSE 0 END DESC, s.sequence DESC";
     public function __construct(private Store $store, private ExamCatalog $catalog, private TeachingStaff $staff, private Audit $audit)
     {
     }
@@ -241,7 +242,7 @@ final readonly class Exams
         $row = $this->store->one("SELECT a.id AS attempt_id, s.id AS sitting_id, s.sequence, a.score, s.pass_score, s.retake_mode
             FROM exam_attempts a JOIN exam_sittings s ON s.tenant_id=a.tenant_id AND s.id=a.sitting_id
             WHERE a.tenant_id=? AND a.enrollment_id=? AND a.graded_at IS NOT NULL
-            ORDER BY CASE WHEN s.retake_mode='highest' THEN a.score ELSE 0 END DESC, s.sequence DESC LIMIT 1", [$tenant, $enrollment]);
+            ORDER BY " . self::EFFECTIVE_ORDER . " LIMIT 1", [$tenant, $enrollment]);
         return $row === null ? null : $row + ['passed' => $row['score'] >= $row['pass_score']];
     }
 

@@ -15,7 +15,7 @@ php -S 127.0.0.1:8080 -t public public/index.php
 
 初始化命令从标准输入读取密码。交互终端会在收到回车前显示输入内容，自动化可通过标准输入传入密码。打开 `http://127.0.0.1:8080/`，用 `harbor` 和刚创建的管理员账号登录。在「成员」中创建学员，在「课程」中创建和发布课程修订，再打开「班期」创建席位。
 
-详细操作、HTTP 接口与可重跑验收见 [课程与招生](docs/admissions.md)、[企业采购与席位](docs/enterprise-seats.md)、[学习进度与直播出勤](docs/study-progress.md)、[作业与辅导](docs/coursework.md)、[题库与考试](docs/exams.md) 和 [证书与复训](docs/credentials.md)。
+详细操作、HTTP 接口与可重跑验收见 [课程与招生](docs/admissions.md)、[企业采购与席位](docs/enterprise-seats.md)、[学习进度与直播出勤](docs/study-progress.md)、[作业与辅导](docs/coursework.md)、[题库与考试](docs/exams.md)、[证书与复训](docs/credentials.md) 和 [学习路径与报表](docs/paths-and-reports.md)。
 
 ## 产品需求
 
@@ -29,7 +29,7 @@ php -S 127.0.0.1:8080 -t public public/index.php
 
 ## 开发进度
 
-当前开发版本覆盖租户与课程、班期与招生、企业购课、学习过程、作业与辅导、题库与考试及证书与复训。换班可按已发布版本的等价映射结转学时，并留存原成绩快照。学习路径、经营与企业报告按产品需求继续交付。
+当前开发版本覆盖租户与课程、班期与招生、企业购课、学习过程、作业与辅导、题库与考试、证书与复训、学习路径和经营报表。操作文档包含各业务域的可重跑验收。
 
 ## 许可
 

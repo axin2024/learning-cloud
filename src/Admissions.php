@@ -11,10 +11,12 @@ final readonly class Admissions
     private const ENROLLMENT_FIELDS = 'id, cohort_id, learner_id, state, transferred_from_id, enrolled_at, closed_at, version';
     private const OCCUPIED = "'reserved','enrolled','studying','completed'";
     private CourseEquivalences $equivalences;
+    private LearningPaths $paths;
 
     public function __construct(private Store $store, private Catalog $catalog, private Accounts $accounts, private Audit $audit)
     {
         $this->equivalences = new CourseEquivalences($store, $audit);
+        $this->paths = new LearningPaths($store, $audit);
     }
 
     public function createCohort(Actor $actor, array $input): array
@@ -22,6 +24,7 @@ final readonly class Admissions
         $actor->requireManagement();
         $courseId = Input::integer($input, 'course_id', 1);
         $revisionId = array_key_exists('revision_id', $input) ? Input::integer($input, 'revision_id', 1) : null;
+        $pathStep = array_key_exists('path_step_id', $input) ? Input::integer($input, 'path_step_id', 1) : null;
         $code = Input::slug($input, 'code');
         $name = Input::string($input, 'name', 160);
         $start = Input::date($input, 'starts_on');
@@ -32,13 +35,16 @@ final readonly class Admissions
             throw new Problem(422, 'invalid_cohort_dates');
         }
         try {
-            return $this->store->transaction(function () use ($actor, $courseId, $revisionId, $code, $name, $start, $end, $capacity, $open): array {
+            return $this->store->transaction(function () use ($actor, $courseId, $revisionId, $pathStep, $code, $name, $start, $end, $capacity, $open): array {
                 $revision = $this->catalog->revisionForNewCohort($actor, $courseId, $revisionId);
                 $id = $this->store->insert(
                     'INSERT INTO cohorts (tenant_id, revision_id, code, name, starts_on, ends_on, capacity, registration_open) VALUES (?, ?, ?, ?, ?, ?, ?, ?)',
                     [$actor->tenantId, $revision, $code, $name, $start, $end, $capacity, $open]
                 );
-                $this->audit->record($actor, 'cohort', $id, 'created', ['revision_id' => $revision, 'capacity' => $capacity]);
+                if ($pathStep !== null) {
+                    $this->paths->bindCohort($actor->tenantId, $id, $courseId, $pathStep);
+                }
+                $this->audit->record($actor, 'cohort', $id, 'created', ['revision_id' => $revision, 'capacity' => $capacity, 'path_step_id' => $pathStep]);
                 return $this->cohort($actor, $id);
             });
         } catch (PDOException $error) {
@@ -84,7 +90,12 @@ final readonly class Admissions
               WHERE c.tenant_id=? AND c.id=?",
             [$actor->tenantId, $cohortId]
         );
-        return $row ?? throw new Problem(404, 'cohort_not_found');
+        if ($row === null) {
+            throw new Problem(404, 'cohort_not_found');
+        }
+        $path = $this->paths->cohortPath($actor->tenantId, $cohortId);
+        return $row + ['path' => $path, 'missing_prerequisites' => $path !== null && $actor->has('learner')
+            ? $this->paths->missing($actor->tenantId, $cohortId, $actor->accountId) : []];
     }
 
     public function cohorts(Actor $actor, int $after): array
@@ -126,6 +137,7 @@ final readonly class Admissions
                 if (!$this->accounts->find($actor->tenantId, $learnerId)->has('learner')) {
                     throw new Problem(422, 'account_is_not_a_learner');
                 }
+                $this->paths->requireEntry($actor->tenantId, $cohortId, $learnerId);
                 $hasSeat = $this->occupied($actor, $cohortId) < $cohort['capacity'];
                 $id = $this->insertEnrollment($actor, $cohortId, $learnerId, $hasSeat ? 'enrolled' : 'waitlisted');
                 $this->audit->record($actor, 'enrollment', $id, $hasSeat ? 'enrolled' : 'waitlisted', ['cohort_id' => $cohortId, 'learner_id' => $learnerId]);
@@ -169,6 +181,7 @@ final readonly class Admissions
         if (!$cohort['registration_open']) {
             throw new Problem(409, 'registration_closed');
         }
+        $this->paths->requireEntry($learner->tenantId, $cohortId, $learner->accountId);
         if ($this->occupied($learner, $cohortId) >= $cohort['capacity']) {
             throw new Problem(409, 'enterprise_cohort_full');
         }
@@ -212,6 +225,7 @@ final readonly class Admissions
             if ($this->activeEnrollment($actor, $targetId, $enrollment['learner_id']) !== null) {
                 throw new Problem(409, 'already_in_target_cohort');
             }
+            $this->paths->requireEntry($actor->tenantId, $targetId, $enrollment['learner_id']);
             if ($this->occupied($actor, $targetId) >= $target['capacity']) {
                 throw new Problem(409, 'target_cohort_full');
             }
