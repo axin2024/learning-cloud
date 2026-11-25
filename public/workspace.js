@@ -57,6 +57,12 @@ const errorLabels = {
     exam_answers_closed: "本场答题已经截止，请打开服务器保存的答卷。",
     exam_answer_version_conflict: "服务器有更新的答卷，请重新打开后继续。", enrollment_cannot_take_exam: "当前报名状态无法参加考试。",
     exam_attempt_not_submitted: "交卷后才能查阅答卷。", exam_attempt_already_graded: "这份答卷已完成阅卷，请重新打开。",
+    credential_not_found: "当前账号无法查看这张证书。", credential_requirements_unmet: "学业条件尚未全部达标，请重新核对审核结果。",
+    credential_issue_conflict: "该报名已按原有效期签发证书，请打开原证书。",
+    credential_already_revoked: "证书已撤销，原原因已保留。",
+    invalid_retraining_enrollment: "请选择原持证人在证书到期后报名的同一课程新班期。",
+    retraining_task_not_assignable: "当前复训状态无法关联报名。", retraining_target_already_linked: "所选报名已经关联其他复训任务。",
+    retraining_task_not_found: "当前账号无法查看复训任务。", retraining_access_required: "当前身份无法查看复训任务。",
 };
 
 let actor = null;
@@ -141,6 +147,7 @@ function displayNavigation(current) {
     if (actor.roles.includes("admin") || actor.roles.includes("enterprise_admin")) entries.push(["companies", "企业购课", showCompanies]);
     if (manages()) entries.push(["live", "直播出勤", showLiveHub]);
     if (actor.roles.includes("instructor")) entries.push(["teaching", "授课班期", showTeachingCohorts]);
+    if (manages() || actor.roles.includes("learner")) entries.push(["retraining", "复训任务", showRetraining]);
     if (actor.roles.includes("admin")) entries.push(["accounts", "成员", showAccounts]);
     $("navigation").replaceChildren(...entries.map(([screen, label, navigate]) => {
         const link = button(label, () => navigate());
@@ -474,6 +481,7 @@ async function showEnrollment(id, roster = null) {
         }
         if (!roster && item.enrolled_at) actions.append(button("作业与评分", () => showMyCoursework(item)));
         if (!roster && item.enrolled_at) actions.append(button("考试与成绩", () => showMyExams(item)));
+        if (item.enrolled_at) actions.append(button(roster ? "结业审核" : "结业与证书", () => showCompletion(item, cohort, roster)));
         if (["enrolled", "studying", "completed"].includes(item.state)) {
             actions.append(button("查看课程材料", () => showRevision(cohort.course_id, cohort.revision_id, roster ? null : item.id), "primary"));
         }

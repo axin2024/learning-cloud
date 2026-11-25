@@ -111,6 +111,27 @@ legend { font-weight: 680; padding: 0 5px; }
 .exam-options input { width: auto; min-height: auto; accent-color: var(--green); }
 .exam-toolbar { position: sticky; top: 8px; z-index: 1; }
 .exam-toolbar p { margin: 10px 0 0; }
+.credential-subheading { margin-top: 20px; }
+.credential-holder { font-size: 1.56rem; font-weight: 700; margin: 16px 0; }
+.credential-facts { display: grid; grid-template-columns: minmax(90px, auto) minmax(0, 1fr); gap: 8px 16px; margin: 16px 0; }
+.credential-facts dt { color: var(--muted); }
+.credential-facts dd { margin: 0; overflow-wrap: anywhere; }
+.credential-valid { color: var(--green-dark); background: var(--green-soft); }
+.credential-expired { color: var(--amber); background: var(--amber-soft); }
+.credential-revoked { color: var(--red); background: var(--red-soft); }
+.credential-actions { margin-top: 18px; }
+.verification-panel { width: min(100%, 570px); }
+.verification-panel .brand { text-decoration: none; color: var(--ink); }
+.verification-result { margin-top: 20px; padding-top: 18px; border-top: 1px solid var(--line); }
+.verification-result h2 { border-radius: 8px; padding: 6px 10px; }
+
+@media print {
+    .printing-credential .topbar, .printing-credential .rail, .printing-credential #notice,
+    .printing-credential #content > :not(.credential-printable), .printing-credential .credential-actions,
+    .printing-credential .credential-private { display: none !important; }
+    .printing-credential, .printing-credential .work-area { display: block; background: white; }
+    .printing-credential .credential-printable { margin: 0; border: 2px solid #284e3b; padding: 32px; }
+}
 
 @media (max-width: 680px) {
     .work-area { grid-template-columns: minmax(0, 1fr); }

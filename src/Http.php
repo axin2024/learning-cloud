@@ -24,6 +24,13 @@ final class Http
         $requestId = bin2hex(random_bytes(12));
         header('X-Request-Id: ' . $requestId);
         try {
+            if ($method === 'GET' && str_starts_with($path, '/api/verify-credential/')) {
+                header('X-Robots-Tag: noindex, nofollow');
+                if (!preg_match('~\A/api/verify-credential/(LC-[0-9A-F]{32})\z~i', $path, $parts)) {
+                    throw new Problem(404, 'credential_not_found');
+                }
+                $this->send(Credentials::verify(Store::connect(), strtoupper($parts[1])));
+            }
             if ($method === 'POST' && $path === '/api/live-attendance') {
                 $input = $this->body();
                 $store = Store::connect();
@@ -89,6 +96,11 @@ final class Http
                 $staff = new TeachingStaff($store, $accounts, $audit);
                 $papers = new ExamCatalog($store, $staff, $audit);
                 [$status, $result] = $this->exams($actor, $papers, new Exams($store, $papers, $staff, $audit), $method, $path, $input);
+            } elseif (str_starts_with($path, '/api/credentials/')) {
+                $staff = new TeachingStaff($store, $accounts, $audit);
+                $exams = new Exams($store, new ExamCatalog($store, $staff, $audit), $staff, $audit);
+                $credentials = new Credentials($store, new StudyProgress($store, $audit), $exams, $audit);
+                [$status, $result] = $this->credentials($actor, $credentials, new Retraining($store, $audit), $method, $path, $input);
             } else {
                 [$status, $result] = $this->dispatch($actor, $accounts, $catalog, $admissions, $method, $path, $input);
             }
@@ -403,6 +415,31 @@ final class Http
                 ['POST', 'grade'] => [200, $exams->grade($actor, $id, $input)],
                 default => $this->notFound(),
             };
+        }
+        $this->notFound();
+    }
+
+    private function credentials(Actor $actor, Credentials $credentials, Retraining $retraining, string $method, string $path, array $input): array
+    {
+        if (preg_match('~\A/api/credentials/enrollments/([1-9][0-9]*)(/issue)?\z~', $path, $parts)) {
+            $enrollment = $this->id($parts[1]);
+            if ($method === 'GET' && !isset($parts[2])) {
+                return [200, $credentials->review($actor, $enrollment)];
+            }
+            if ($method === 'POST' && isset($parts[2])) {
+                $result = $credentials->issue($actor, $enrollment, $input);
+                return [$result['replayed'] ? 200 : 201, $result];
+            }
+        }
+        if ($method === 'POST' && preg_match('~\A/api/credentials/([1-9][0-9]*)/revoke\z~', $path, $parts)) {
+            return [200, $credentials->revoke($actor, $this->id($parts[1]), $input)];
+        }
+        if ($method === 'GET' && $path === '/api/credentials/retraining') {
+            return [200, $retraining->listing($actor, $this->cursor(), Input::choice(['state' => $_GET['state'] ?? 'all'], 'state',
+                ['all', 'pending', 'enrolled', 'completed', 'cancelled']))];
+        }
+        if ($method === 'PUT' && preg_match('~\A/api/credentials/retraining/([1-9][0-9]*)/enrollment\z~', $path, $parts)) {
+            return [200, $retraining->assign($actor, $this->id($parts[1]), $input)];
         }
         $this->notFound();
     }

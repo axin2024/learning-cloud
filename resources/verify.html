@@ -1,0 +1,28 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="robots" content="noindex, nofollow">
+    <title>证书验真 · Learning Cloud</title>
+    <link rel="stylesheet" href="/workspace.css">
+    <script src="/verify.js" defer></script>
+</head>
+<body>
+<main class="entry">
+    <section class="login-panel verification-panel">
+        <a class="brand" href="/"><span class="brand-mark" aria-hidden="true">L</span>Learning Cloud</a>
+        <h1>证书验真</h1>
+        <form id="verification-form" class="form-stack">
+            <label>证书编号
+                <input name="serial" required maxlength="35" autocomplete="off" autocapitalize="characters" spellcheck="false"
+                    placeholder="LC- 后跟 32 位编号">
+            </label>
+            <button class="primary">查询证书</button>
+        </form>
+        <p id="verification-message" class="message" role="status" hidden></p>
+        <section id="verification-result" class="verification-result" aria-live="polite" hidden></section>
+    </section>
+</main>
+</body>
+</html>

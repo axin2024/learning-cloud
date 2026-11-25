@@ -7,7 +7,8 @@ require dirname(__DIR__) . '/src/bootstrap.php';
 
 $path = parse_url($_SERVER['REQUEST_URI'] ?? '/', PHP_URL_PATH);
 $method = $_SERVER['REQUEST_METHOD'] ?? 'GET';
-if (PHP_SAPI === 'cli-server' && in_array($path, ['/workspace.css', '/workspace.js', '/enterprise.js', '/study.js', '/coursework.js', '/exams.js'], true)) {
+if (PHP_SAPI === 'cli-server' && in_array($path, ['/workspace.css', '/workspace.js', '/enterprise.js', '/study.js', '/coursework.js',
+    '/exams.js', '/credentials.js', '/verify.js'], true)) {
     return false;
 }
 header('X-Content-Type-Options: nosniff');
@@ -17,6 +18,14 @@ if ($method === 'GET' && $path === '/') {
     header('Content-Type: text/html; charset=utf-8');
     header('Cache-Control: no-store');
     readfile(dirname(__DIR__) . '/resources/workspace.html');
+    exit;
+}
+
+if ($method === 'GET' && $path === '/verify') {
+    header('Content-Type: text/html; charset=utf-8');
+    header('Cache-Control: no-store');
+    header('X-Robots-Tag: noindex, nofollow');
+    readfile(dirname(__DIR__) . '/resources/verify.html');
     exit;
 }
 

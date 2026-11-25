@@ -6,6 +6,7 @@ use LearningCloud\Audit;
 use LearningCloud\ExamCatalog;
 use LearningCloud\Exams;
 use LearningCloud\Problem;
+use LearningCloud\Retraining;
 use LearningCloud\Schema;
 use LearningCloud\Store;
 use LearningCloud\TeachingStaff;
@@ -13,8 +14,8 @@ use LearningCloud\TeachingStaff;
 require dirname(__DIR__) . '/src/bootstrap.php';
 
 $command = $argv[1] ?? '';
-if (!in_array($command, ['migrate', 'health', 'exam-sweep', 'create-tenant'], true)) {
-    fwrite(STDERR, "Usage: php bin/learning.php migrate|health|exam-sweep [LIMIT]|create-tenant TENANT TENANT_NAME ADMIN_EMAIL ADMIN_NAME\n");
+if (!in_array($command, ['migrate', 'health', 'exam-sweep', 'credential-sweep', 'create-tenant'], true)) {
+    fwrite(STDERR, "Usage: php bin/learning.php migrate|health|exam-sweep [LIMIT]|credential-sweep [LIMIT]|create-tenant TENANT TENANT_NAME ADMIN_EMAIL ADMIN_NAME\n");
     exit(2);
 }
 
@@ -27,14 +28,18 @@ try {
         $ready = $schema->ready();
         echo json_encode(['ready' => $ready], JSON_THROW_ON_ERROR), PHP_EOL;
         exit($ready ? 0 : 1);
-    } elseif ($command === 'exam-sweep') {
+    } elseif (in_array($command, ['exam-sweep', 'credential-sweep'], true)) {
         $limit = filter_var($argv[2] ?? 100, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000]]);
         if (count($argv) > 3 || $limit === false) {
-            throw new Problem(422, 'invalid_exam_sweep_limit');
+            throw new Problem(422, $command === 'exam-sweep' ? 'invalid_exam_sweep_limit' : 'invalid_credential_sweep_limit');
         }
         $audit = new Audit($store);
-        $staff = new TeachingStaff($store, new Accounts($store, $audit), $audit);
-        $result = (new Exams($store, new ExamCatalog($store, $staff, $audit), $staff, $audit))->sweep($limit);
+        if ($command === 'exam-sweep') {
+            $staff = new TeachingStaff($store, new Accounts($store, $audit), $audit);
+            $result = (new Exams($store, new ExamCatalog($store, $staff, $audit), $staff, $audit))->sweep($limit);
+        } else {
+            $result = (new Retraining($store, $audit))->sweep($limit);
+        }
     } else {
         if (count($argv) !== 6) {
             fwrite(STDERR, "Usage: php bin/learning.php create-tenant TENANT TENANT_NAME ADMIN_EMAIL ADMIN_NAME\n");

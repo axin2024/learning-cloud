@@ -63,6 +63,8 @@ final readonly class AssignmentCatalog
         $actor->requireManagement();
         $version = Input::integer($input, 'version', 1);
         return $this->store->transaction(function () use ($actor, $id, $version): array {
+            $before = $this->row($actor->tenantId, $id);
+            $this->store->one('SELECT id FROM cohorts WHERE tenant_id=? AND id=? FOR UPDATE', [$actor->tenantId, $before['cohort_id']]);
             $task = $this->row($actor->tenantId, $id, true);
             if ($task['published_at'] !== null && $task['version'] === $version) {
                 return $task;
