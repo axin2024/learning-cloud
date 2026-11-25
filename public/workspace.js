@@ -1,10 +1,11 @@
 "use strict";
 
 const $ = (id) => document.getElementById(id);
-const roleLabels = {admin: "空间管理员", registrar: "教务", instructor: "讲师", learner: "学员"};
+const roleLabels = {admin: "空间管理员", registrar: "教务", instructor: "讲师", learner: "学员", enterprise_admin: "企业管理员"};
 const stateLabels = {
     waitlisted: "候补", reserved: "已预留", enrolled: "已报名", studying: "学习中", completed: "已完成",
     withdrawn: "已退班", transferred: "已换班", open: "报名开放", closed: "已停止报名", published: "已发布", draft: "草稿",
+    assigned: "待激活", activated: "已激活", reclaimed: "已回收", duplicate: "已有席位", rejected: "未分配",
 };
 const errorLabels = {
     invalid_credentials: "学习空间、邮箱或密码有误。", login_required: "登录已过期，请重新登录。",
@@ -21,7 +22,16 @@ const errorLabels = {
     same_cohort: "请选择其他班期。", course_equivalence_required: "两个班期的课程版本不同，需要课程等价配置。",
     already_in_target_cohort: "该学员已在目标班期报名或候补。", account_exists: "此邮箱在当前空间已注册。",
     account_not_found: "当前空间没有该成员。", account_is_not_a_learner: "所选成员没有学员角色。",
-    request_key_reused: "这个报名回执已用于其他学员，请重新发起。",
+    request_key_reused: "这个请求编号已用于其他内容，请重新发起。",
+    company_not_found: "当前账号无法访问该企业。", company_code_exists: "此空间已使用该企业代码。",
+    department_code_exists: "此企业已使用该部门代码。", department_not_found: "没有找到该部门。",
+    invalid_contract_dates: "合同截止日期不能早于生效日期。", contract_course_exists: "这个企业合同已登记该课程的名额。",
+    contract_outside_validity: "当前日期不在合同有效期内。", published_course_not_found: "请先发布课程。",
+    learner_department_conflict: "成员已归属其他部门。", learner_not_in_department: "该成员未加入指定部门。",
+    learner_already_assigned_elsewhere: "该成员在这个合同下已有其他班期的席位。", contract_quota_exhausted: "合同剩余名额不足。",
+    cohort_not_in_contract: "班期课程与合同课程不匹配。", activated_seat_cannot_reclaim: "已激活席位不可回收。",
+    seat_reclaimed: "该席位已回收。", learner_already_in_cohort: "你在此班期已有报名或候补。",
+    enterprise_cohort_full: "此班期已满，企业席位仍处于待激活状态。",
 };
 
 let actor = null;
@@ -101,7 +111,8 @@ function manages() {
 
 function displayNavigation(current) {
     const entries = [["courses", "课程", showCourses], ["cohorts", "班期", showCohorts]];
-    if (actor.roles.includes("learner")) entries.push(["mine", "我的报名", showMine]);
+    if (actor.roles.includes("learner")) entries.push(["mine", "我的报名", showMine], ["my-seats", "企业席位", showMySeats]);
+    if (actor.roles.includes("admin") || actor.roles.includes("enterprise_admin")) entries.push(["companies", "企业购课", showCompanies]);
     if (actor.roles.includes("admin")) entries.push(["accounts", "成员", showAccounts]);
     $("navigation").replaceChildren(...entries.map(([screen, label, navigate]) => {
         const link = button(label, () => navigate());
@@ -460,8 +471,8 @@ async function showAccounts(after = 0) {
 }
 
 function newAccount() {
-    const options = Object.entries(roleLabels).map(([role, label]) => {
-        const check = field("roles", label, "checkbox", role === "learner", {required: false});
+    const options = ["admin", "registrar", "instructor", "learner"].map((role) => {
+        const check = field("roles", roleLabels[role], "checkbox", role === "learner", {required: false});
         check.querySelector("input").value = role;
         return check;
     });

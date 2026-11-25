@@ -157,6 +157,24 @@ final readonly class Admissions
         });
     }
 
+    public function activateEnterpriseSeat(Actor $learner, int $cohortId, int $assignmentId): int
+    {
+        // The caller holds the pool lock and commits the assignment with this enrollment.
+        $cohort = $this->cohortRow($learner, $cohortId, true);
+        if ($this->activeEnrollment($learner, $cohortId, $learner->accountId) !== null) {
+            throw new Problem(409, 'learner_already_in_cohort');
+        }
+        if (!$cohort['registration_open']) {
+            throw new Problem(409, 'registration_closed');
+        }
+        if ($this->occupied($learner, $cohortId) >= $cohort['capacity']) {
+            throw new Problem(409, 'enterprise_cohort_full');
+        }
+        $id = $this->insertEnrollment($learner, $cohortId, $learner->accountId, 'enrolled');
+        $this->audit->record($learner, 'enrollment', $id, 'enterprise_enrolled', ['assignment_id' => $assignmentId, 'cohort_id' => $cohortId]);
+        return $id;
+    }
+
     public function transfer(Actor $actor, int $enrollmentId, array $input): array
     {
         $targetId = Input::integer($input, 'target_cohort_id', 1);

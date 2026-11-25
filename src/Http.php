@@ -64,7 +64,13 @@ final class Http
             $actor = $accounts->find(...$principal);
             $catalog = new Catalog($store, $audit);
             $admissions = new Admissions($store, $catalog, $accounts, $audit);
-            [$status, $result] = $this->dispatch($actor, $accounts, $catalog, $admissions, $method, $path, $input);
+            if (preg_match('~\A/api/(?:companies(?:/|\z)|me/seat-assignments\z|seat-assignments/)~', $path)) {
+                $companies = new Companies($store, $accounts, $audit);
+                $seats = new SeatPurchases($store, $companies, $admissions, $audit);
+                [$status, $result] = $this->enterprise($actor, $companies, $seats, $method, $path, $input);
+            } else {
+                [$status, $result] = $this->dispatch($actor, $accounts, $catalog, $admissions, $method, $path, $input);
+            }
             $this->send($result, $status);
         } catch (Problem $error) {
             $this->send(['error' => $error->reason, 'details' => (object) $error->details, 'request_id' => $requestId], $error->status);
@@ -163,6 +169,64 @@ final class Http
             }
         }
         return ['actor' => $actor, 'csrf_token' => $_SESSION['csrf']];
+    }
+
+    private function enterprise(Actor $actor, Companies $companies, SeatPurchases $seats, string $method, string $path, array $input): array
+    {
+        if ($path === '/api/companies') {
+            return match ($method) {
+                'GET' => [200, $companies->listing($actor, $this->cursor())],
+                'POST' => [201, $companies->create($actor, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if ($path === '/api/me/seat-assignments' && $method === 'GET') {
+            return [200, $seats->mine($actor, $this->cursor())];
+        }
+        if ($method === 'POST' && preg_match('~\A/api/seat-assignments/([1-9][0-9]*)/activate\z~', $path, $parts)) {
+            return [200, $seats->activate($actor, $this->id($parts[1]))];
+        }
+        if (preg_match('~\A/api/companies/([1-9][0-9]*)(?:/(departments|learners|administrators|purchases))?\z~', $path, $parts)) {
+            $company = $this->id($parts[1]);
+            return match ($method . '/' . ($parts[2] ?? '')) {
+                'GET/' => [200, $companies->scope($actor, $company)],
+                'GET/departments' => [200, $companies->departments($actor, $company, $this->cursor())],
+                'POST/departments' => [201, $companies->createDepartment($actor, $company, $input)],
+                'GET/learners' => [200, $companies->learners($actor, $company, $this->cursor())],
+                'POST/learners' => [200, $companies->addLearners($actor, $company, $input)],
+                'GET/administrators' => [200, $companies->administrators($actor, $company, $this->cursor())],
+                'GET/purchases' => [200, $seats->listing($actor, $company, $this->cursor())],
+                'POST/purchases' => [201, $seats->purchase($actor, $company, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if ($method === 'PUT' && preg_match('~\A/api/companies/([1-9][0-9]*)/administrators/([1-9][0-9]*)\z~', $path, $parts)) {
+            return [200, $companies->setAdministrator($actor, $this->id($parts[1]), $this->id($parts[2]), $input)];
+        }
+        if (preg_match('~\A/api/companies/([1-9][0-9]*)/purchases/([1-9][0-9]*)(?:/(batches|assignments)(?:/([1-9][0-9]*)(/reclaim)?)?)?\z~', $path, $parts)) {
+            $company = $this->id($parts[1]);
+            $pool = $this->id($parts[2]);
+            $resource = $parts[3] ?? '';
+            if (isset($parts[4])) {
+                $id = $this->id($parts[4]);
+                return match ([$method, $resource, isset($parts[5])]) {
+                    ['GET', 'batches', false] => [200, $seats->batch($actor, $company, $pool, $id)],
+                    ['POST', 'assignments', true] => [200, $seats->reclaim($actor, $company, $pool, $id)],
+                    default => $this->notFound(),
+                };
+            }
+            if ($method === 'POST' && $resource === 'batches') {
+                $receipt = $seats->assign($actor, $company, $pool, $input, Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null));
+                return [$receipt['replayed'] ? 200 : 201, $receipt];
+            }
+            return match ([$method, $resource]) {
+                ['GET', ''] => [200, $seats->pool($actor, $company, $pool)],
+                ['GET', 'assignments'] => [200, $seats->assignments($actor, $company, $pool, $this->cursor())],
+                ['GET', 'batches'] => [200, $seats->batches($actor, $company, $pool, $this->cursor())],
+                default => $this->notFound(),
+            };
+        }
+        $this->notFound();
     }
 
     private function startSession(): void

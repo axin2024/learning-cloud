@@ -101,7 +101,11 @@ final readonly class Accounts
         if (!$account) {
             throw new Problem(404, 'account_not_found');
         }
-        $roles = $this->store->all('SELECT role FROM account_roles WHERE tenant_id=? AND account_id=? ORDER BY role', [$tenantId, $accountId]);
+        $roles = $this->store->all(
+            "SELECT role FROM account_roles WHERE tenant_id=? AND account_id=?
+             UNION SELECT 'enterprise_admin' FROM company_admins WHERE tenant_id=? AND account_id=? ORDER BY role",
+            [$tenantId, $accountId, $tenantId, $accountId]
+        );
         return new Actor($tenantId, $accountId, $account['name'], array_column($roles, 'role'));
     }
 
