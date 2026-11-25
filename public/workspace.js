@@ -38,6 +38,15 @@ const errorLabels = {
     study_interval_outside_chapter: "出勤区间超出章节时长。", attendance_event_already_reviewed: "此回执已复核，请刷新。",
     invalid_attendance_session_code: "请填写 48 位小写十六进制学习会话号。", attendance_provider_code_exists: "已使用此平台代码。",
     attendance_role_not_learner: "该平台角色无需认定学员出勤。",
+    teaching_cohort_not_found: "当前账号无权进入该班期的教学工作台。",
+    account_is_not_teaching_staff: "所选成员需要具备讲师角色，才能分配为班期讲师或助教。",
+    assignment_not_found: "当前账号无法查看这项作业。", assignment_already_published: "作业已发布，评分规则与交卷时间已冻结。",
+    assignment_version_conflict: "草稿已有更新，请重新打开后编辑。", rubric_points_must_total_100: "评分项满分合计须为 100 分。",
+    invalid_assignment_answer: "请填写答卷，最多 32000 字。", assignment_submission_closed: "首次提交时间已结束。",
+    assignment_return_required: "已过截止时间，需等待讲师或助教授权重交。",
+    enrollment_cannot_submit_coursework: "当前报名状态无法提交作业。",
+    submission_already_graded: "此版本的评分已发布，请刷新查看。", submission_is_not_latest: "作业已有新版本，请从最新版本授权重交。",
+    return_expiry_must_be_future: "授权截止时间须晚于当前时间。", assignment_return_already_open: "此版本已有有效的重交授权。",
 };
 
 let actor = null;
@@ -121,6 +130,7 @@ function displayNavigation(current) {
     if (actor.roles.includes("learner")) entries.push(["mine", "我的报名", showMine], ["my-seats", "企业席位", showMySeats]);
     if (actor.roles.includes("admin") || actor.roles.includes("enterprise_admin")) entries.push(["companies", "企业购课", showCompanies]);
     if (manages()) entries.push(["live", "直播出勤", showLiveHub]);
+    if (actor.roles.includes("instructor")) entries.push(["teaching", "授课班期", showTeachingCohorts]);
     if (actor.roles.includes("admin")) entries.push(["accounts", "成员", showAccounts]);
     $("navigation").replaceChildren(...entries.map(([screen, label, navigate]) => {
         const link = button(label, () => navigate());
@@ -387,6 +397,7 @@ async function showCohort(id, after = 0) {
         if (manages()) {
             actions.append(button("调整招生", () => editCohort(cohort)));
             actions.append(button("配置直播出勤", () => showLiveBindings(cohort)));
+            actions.append(button("班期作业", () => showCohortCoursework(cohort)), button("教学成员", () => showTeachingStaff(cohort)));
             if (cohort.registration_open) actions.append(button("代学员报名", () => enrollLearner(cohort.id), "primary"));
             const page = await api(`/api/cohorts/${id}/enrollments?after=${after}`);
             const rows = page.items.map((item) => [item.learner_name, item.learner_id, badge(item.state),
@@ -448,6 +459,7 @@ async function showEnrollment(id, roster = null) {
         if (!["waitlisted", "reserved"].includes(item.state)) {
             actions.append(button("学习进度", () => showStudySummary(item, cohort, roster)));
         }
+        if (!roster && item.enrolled_at) actions.append(button("作业与评分", () => showMyCoursework(item)));
         if (["enrolled", "studying", "completed"].includes(item.state)) {
             actions.append(button("查看课程材料", () => showRevision(cohort.course_id, cohort.revision_id, roster ? null : item.id), "primary"));
         }
@@ -509,10 +521,12 @@ function showSession(summary) {
     $("workspace").hidden = !actor;
     if (actor) {
         $("identity").textContent = `${actor.name} · ${actor.roles.map((role) => roleLabels[role]).join("、")}`;
+        if (!manages() && actor.roles.includes("instructor")) return showTeachingCohorts();
         return actor.roles.includes("learner") && !manages() ? showCohorts() : showCourses();
     }
     activeView++;
     enrollmentKeys.clear();
+    courseworkKeys.clear();
     $("content").replaceChildren();
     $("login-form").elements.tenant.focus();
 }

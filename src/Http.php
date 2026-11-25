@@ -80,6 +80,11 @@ final class Http
                 $study = new StudyProgress($store, $audit);
                 $attendance = new LiveAttendance($store, $study, $audit);
                 [$status, $result] = $this->study($actor, $study, $attendance, $method, $path, $input);
+            } elseif (str_starts_with($path, '/api/coursework/')) {
+                $staff = new TeachingStaff($store, $accounts, $audit);
+                $assignments = new AssignmentCatalog($store, $staff, $audit);
+                $coursework = new Coursework($store, $assignments, $staff, $audit);
+                [$status, $result] = $this->coursework($actor, $staff, $assignments, $coursework, $method, $path, $input);
             } else {
                 [$status, $result] = $this->dispatch($actor, $accounts, $catalog, $admissions, $method, $path, $input);
             }
@@ -290,6 +295,55 @@ final class Http
                 ['attendance', 'review'] => [200, $attendance->review($actor, $id, $input)],
                 default => $this->notFound(),
             };
+        }
+        $this->notFound();
+    }
+
+    private function coursework(
+        Actor $actor, TeachingStaff $staff, AssignmentCatalog $assignments, Coursework $coursework,
+        string $method, string $path, array $input
+    ): array {
+        if ($method === 'GET' && $path === '/api/coursework/teaching-cohorts') {
+            return [200, $staff->cohorts($actor, $this->cursor())];
+        }
+        if (preg_match('~\A/api/coursework/cohorts/([1-9][0-9]*)/(staff|assignments)(?:/([1-9][0-9]*))?\z~', $path, $parts)) {
+            $cohort = $this->id($parts[1]);
+            return match ([$method, $parts[2], isset($parts[3])]) {
+                ['GET', 'staff', false] => [200, $staff->listing($actor, $cohort)],
+                ['PUT', 'staff', true] => [200, $staff->set($actor, $cohort, $this->id($parts[3]), $input)],
+                ['GET', 'assignments', false] => [200, $assignments->listing($actor, $cohort, $this->cursor())],
+                ['POST', 'assignments', false] => [201, $assignments->draft($actor, $cohort, $input)],
+                default => $this->notFound(),
+            };
+        }
+        if (preg_match('~\A/api/coursework/assignments/([1-9][0-9]*)(?:/(publish|submissions)(?:/([1-9][0-9]*))?)?\z~', $path, $parts)) {
+            $assignment = $this->id($parts[1]);
+            return match ([$method, $parts[2] ?? '', isset($parts[3])]) {
+                ['GET', '', false] => [200, $assignments->detail($actor, $assignment)],
+                ['PUT', '', false] => [200, $assignments->edit($actor, $assignment, $input)],
+                ['POST', 'publish', false] => [200, $assignments->publish($actor, $assignment, $input)],
+                ['GET', 'submissions', false] => [200, $coursework->queue($actor, $assignment, $this->cursor())],
+                ['GET', 'submissions', true] => [200, $coursework->markingHistory($actor, $assignment, $this->id($parts[3]), $this->cursor())],
+                default => $this->notFound(),
+            };
+        }
+        if (preg_match('~\A/api/coursework/enrollments/([1-9][0-9]*)/assignments(?:/([1-9][0-9]*))?\z~', $path, $parts)) {
+            $enrollment = $this->id($parts[1]);
+            if ($method === 'GET') {
+                return [200, isset($parts[2])
+                    ? $coursework->learnerHistory($actor, $enrollment, $this->id($parts[2]), $this->cursor())
+                    : $coursework->mine($actor, $enrollment, $this->cursor())];
+            }
+            if ($method === 'POST' && isset($parts[2])) {
+                $result = $coursework->submit($actor, $enrollment, $this->id($parts[2]), $input,
+                    Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null));
+                return [$result['replayed'] ? 200 : 201, $result];
+            }
+        }
+        if ($method === 'POST' && preg_match('~\A/api/coursework/submissions/([1-9][0-9]*)/(grade|return)\z~', $path, $parts)) {
+            $submission = $this->id($parts[1]);
+            $result = $parts[2] === 'grade' ? $coursework->grade($actor, $submission, $input) : $coursework->allowReturn($actor, $submission, $input);
+            return [$result['replayed'] ? 200 : 201, $result];
         }
         $this->notFound();
     }

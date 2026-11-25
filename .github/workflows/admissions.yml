@@ -44,6 +44,7 @@ jobs:
           node --check public/workspace.js
           node --check public/enterprise.js
           node --check public/study.js
+          node --check public/coursework.js
           composer validate --no-check-publish --no-interaction
           php bin/learning.php migrate
           php bin/learning.php migrate | grep -Fx '{"applied":[]}'
@@ -59,6 +60,7 @@ jobs:
           python3 tests/admission_concurrency.py
           python3 tests/enterprise_seats.py http://127.0.0.1:8088
           python3 tests/study_http.py http://127.0.0.1:8088
+          python3 tests/coursework_http.py http://127.0.0.1:8088
       - name: Read the HTTP log on failure
         if: failure()
         run: test ! -f storage/php.log || cat storage/php.log

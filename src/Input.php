@@ -99,6 +99,16 @@ final class Input
         return $key;
     }
 
+    public static function utcDateTime(array $data, string $field): string
+    {
+        $value = self::string($data, $field, 40);
+        if (!preg_match('/\A([1-9][0-9]{3}-[0-9]{2}-[0-9]{2})T((?:[01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9])(?:\.([0-9]{1,6}))?Z\z/', $value, $parts)) {
+            throw self::invalid($field);
+        }
+        self::date([$field => $parts[1]], $field);
+        return "$parts[1] $parts[2]." . str_pad($parts[3] ?? '', 6, '0');
+    }
+
     private static function invalid(string $field): Problem
     {
         return new Problem(422, 'invalid_input', ['field' => $field]);
