@@ -11,11 +11,11 @@ mysqldump -h 127.0.0.1 -u learning_backup -p \
 sha256sum learning-cloud.sql > learning-cloud.sql.sha256
 ```
 
-备份账号需要读取表和视图等导出对象的权限。容器部署可用 `docker compose exec -T db» 运行镜像内客户端，使用已在容器中安全配置的客户端身份选项，并把输出写到宿主机。
+备份账号需要读取表和视图等导出对象的权限。容器部署可用 `docker compose exec -T db` 运行镜像内客户端，使用已在容器中安全配置的客户端身份选项，并把输出写到宿主机。
 
 ## 恢复演练
 
-1. 核对 SHA-256。在 MySQL 新建独立的 `learning_restore» 库，字符集使用 `utf8mb4»。按需为临时恢复账号授予该库权限。
+1. 核对 SHA-256。在 MySQL 新建独立的 `learning_restore` 库，字符集使用 `utf8mb4`。按需为临时恢复账号授予该库权限。
 2. 导入备份，并给临时 Web 与 CLI 注入恢复库的连接配置。
 
 ```sh

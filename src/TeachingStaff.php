@@ -62,6 +62,18 @@ final readonly class TeachingStaff
         }
     }
 
+    public function examMarkers(Actor $actor, int $cohortId, int $learner, ?int $delegate = null): array
+    {
+        $sql = "SELECT a.id, a.name, s.duty FROM cohort_staff s
+            JOIN account_roles r ON r.tenant_id=s.tenant_id AND r.account_id=s.account_id AND r.role='instructor'
+            JOIN accounts a ON a.tenant_id=s.tenant_id AND a.id=s.account_id
+            WHERE s.tenant_id=? AND s.cohort_id=? AND a.id NOT IN (?, ?)";
+        $params = [$actor->tenantId, $cohortId, $actor->accountId, $learner];
+        return $delegate === null
+            ? $this->store->all($sql . ' ORDER BY a.name, a.id', $params)
+            : $this->store->all($sql . ' AND a.id=? FOR SHARE OF r', [...$params, $delegate]);
+    }
+
     private function cohort(Actor $actor, int $cohortId, string $lock = ''): void
     {
         if (!$this->store->one('SELECT id FROM cohorts WHERE tenant_id=? AND id=?' . $lock, [$actor->tenantId, $cohortId])) {

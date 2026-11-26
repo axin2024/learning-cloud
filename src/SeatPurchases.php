@@ -86,8 +86,41 @@ final readonly class SeatPurchases
         $cohortId = Input::integer($input, 'cohort_id', 1);
         $rows = Input::list($input, 'rows', 1, 500);
         $requests = array_map(static fn (mixed $row): array => is_array($row) ? [$row['department_id'] ?? null, $row['learner_id'] ?? null] : [null, null], $rows);
-        $digest = hash('sha256', json_encode([$cohortId, $requests], JSON_THROW_ON_ERROR));
-        return $this->store->transaction(function () use ($actor, $companyId, $poolId, $cohortId, $requests, $key, $digest): array {
+        return $this->allocate($actor, $companyId, $poolId, $cohortId, $requests, $key, null);
+    }
+
+    public function retry(Actor $actor, int $companyId, int $poolId, int $batchId, array $input, string $key): array
+    {
+        $source = $this->batch($actor, $companyId, $poolId, $batchId);
+        $lines = array_map(
+            static fn (mixed $line): int => Input::integer(['row' => $line], 'row', 1, 500),
+            Input::list($input, 'rows', 1, 500),
+        );
+        if (count(array_unique($lines)) !== count($lines)) {
+            throw new Problem(422, 'duplicate_seat_retry_row');
+        }
+        sort($lines, SORT_NUMERIC);
+        $items = array_column($source['items'], null, 'row');
+        $requests = [];
+        foreach ($lines as $line) {
+            $item = $items[$line] ?? null;
+            $requests[] = ($item['outcome'] ?? null) === 'rejected' && isset($item['department_id'], $item['learner_id'])
+                ? [$item['department_id'], $item['learner_id']]
+                : null;
+        }
+        return $this->allocate($actor, $companyId, $poolId, (int) $source['cohort_id'], $requests, $key, [
+            'batch_id' => $batchId, 'rows' => $lines,
+        ]);
+    }
+
+    private function allocate(Actor $actor, int $companyId, int $poolId, int $cohortId, array $requests, string $key, ?array $retry): array
+    {
+        $signature = [$cohortId, $requests];
+        if ($retry !== null) {
+            $signature[] = $retry;
+        }
+        $digest = hash('sha256', json_encode($signature, JSON_THROW_ON_ERROR));
+        return $this->store->transaction(function () use ($actor, $companyId, $poolId, $cohortId, $requests, $key, $digest, $retry): array {
             $this->companies->lock($actor, $companyId, true);
             $pool = $this->lockPool($actor, $companyId, $poolId);
             $prior = $this->store->one('SELECT id, request_digest, receipt, created_at FROM seat_batches WHERE tenant_id=? AND pool_id=? AND actor_id=? AND request_key=?',
@@ -106,8 +139,16 @@ final readonly class SeatPurchases
             $remaining = $pool['total'] - $this->seatsUsed($actor, $poolId);
             $number = $pool['next_seat_number'];
             $items = [];
-            foreach ($requests as $index => [$department, $learner]) {
+            foreach ($requests as $index => $request) {
                 $item = ['row' => $index + 1];
+                if ($retry !== null) {
+                    $item['source_row'] = $retry['rows'][$index];
+                }
+                if ($request === null) {
+                    $items[] = $item + ['outcome' => 'rejected', 'reason' => 'seat_retry_row_unavailable'];
+                    continue;
+                }
+                [$department, $learner] = $request;
                 try {
                     $departmentId = Input::integer(['department_id' => $department], 'department_id', 1);
                     $learnerId = Input::integer(['learner_id' => $learner], 'learner_id', 1);
@@ -139,9 +180,15 @@ final readonly class SeatPurchases
             }
             $this->store->execute('UPDATE seat_pools SET next_seat_number=? WHERE tenant_id=? AND id=?', [$number, $actor->tenantId, $poolId]);
             $receipt = ['cohort_id' => $cohortId, 'items' => $items, 'available_at_commit' => $remaining];
+            if ($retry !== null) {
+                $receipt['retry_of'] = $retry['batch_id'];
+            }
             $id = $this->store->insert('INSERT INTO seat_batches (tenant_id, pool_id, actor_id, request_key, request_digest, receipt) VALUES (?, ?, ?, ?, ?, ?)',
                 [$actor->tenantId, $poolId, $actor->accountId, $key, $digest, json_encode($receipt, JSON_THROW_ON_ERROR)]);
-            $this->audit->record($actor, 'seat_batch', $id, 'committed', ['pool_id' => $poolId, 'row_count' => count($items), 'available' => $remaining]);
+            $this->audit->record($actor, 'seat_batch', $id, 'committed', [
+                'pool_id' => $poolId, 'row_count' => count($items), 'available' => $remaining,
+                ...($retry === null ? [] : ['retry_of' => $retry['batch_id'], 'source_rows' => $retry['rows']]),
+            ]);
             return $this->batch($actor, $companyId, $poolId, $id) + ['replayed' => false];
         });
     }

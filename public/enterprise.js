@@ -79,15 +79,55 @@ function newDepartment(company) {
     }, "创建部门");
 }
 
-function addCompanyLearners(company, departments) {
-    openForm("导入学员名单", [field("department_id", "归属部门", "select", departments[0].id, {choices: departments.map((item) => [item.id, item.name])}),
-        field("ids", "学员编号，每行一个", "textarea", "", {maxlength: 16000})], async (form) => {
+function addCompanyLearners(company, departments, retry = null) {
+    openForm(retry ? "修正所选名单" : "导入学员名单", [field("department_id", "归属部门", "select", retry?.department ?? departments[0].id,
+        {choices: departments.map((item) => [item.id, item.name])}),
+        field("ids", "学员编号，每行一个", "textarea", retry?.ids.join("\n") ?? "", {maxlength: 16000})], async (form) => {
         const ids = form.get("ids").trim().split(/\r?\n/).map((value) => parseMemberId(value));
-        const response = await api(`${companyUrl(company.id)}/learners`, "POST", {department_id: Number(form.get("department_id")), learner_ids: ids});
-        return () => display("companies", async () => [back("部门与名单", () => showCompanyLearners(company)), heading("名单导入结果", company.name),
-            block("div", "surface", table(["行号", "学员编号", "结果", "原因"], response.items.map((item) => [item.row, item.learner_id ?? ids[item.row - 1],
-                {added: "已加入", duplicate: "已在名单", rejected: "未加入"}[item.outcome], errorLabels[item.reason] ?? item.reason]), "暂无结果。"))]);
+        const department = Number(form.get("department_id"));
+        const response = await api(`${companyUrl(company.id)}/learners`, "POST", {department_id: department, learner_ids: ids});
+        return () => showCompanyLearnerImport(company, departments, {department, ids, items: response.items, selected: new Set(), previous: retry?.previous});
     }, "导入名单");
+}
+
+async function showCompanyLearnerImport(company, departments, result) {
+    await display("companies", async () => {
+        const actions = block("div", "toolbar");
+        if (result.previous) actions.append(button("上一批导入结果", () => showCompanyLearnerImport(company, departments, result.previous)));
+        const retry = button("修正所选行", () => addCompanyLearners(company, departments, {
+            department: result.department,
+            ids: result.items.filter((item) => result.selected.has(item.row)).map((item) => result.ids[item.row - 1]),
+            previous: result,
+        }), "primary");
+        retry.disabled = !result.selected.size;
+        const columns = ["行号", "学员编号", "结果", "原因"];
+        const rejected = result.items.some((item) => item.outcome === "rejected");
+        if (rejected) {
+            actions.append(retry);
+            columns.push("选择修正");
+        }
+        const rows = result.items.map((item) => {
+            const cells = [item.row, item.learner_id ?? result.ids[item.row - 1],
+                {added: "已加入", duplicate: "已在名单", rejected: "未加入"}[item.outcome], errorLabels[item.reason] ?? item.reason];
+            if (rejected) cells.push(item.outcome === "rejected" ? selectBatchRow(item.row, result.selected, retry) : null);
+            return cells;
+        });
+        return [back("部门与名单", () => showCompanyLearners(company)), heading("名单导入结果", company.name, actions.childElementCount ? actions : null),
+            block("div", "surface", table(columns, rows, "暂无结果。"))];
+    });
+}
+
+function selectBatchRow(row, selected, action) {
+    const check = element("input");
+    check.type = "checkbox";
+    check.setAttribute("aria-label", `选择第 ${row} 行`);
+    check.checked = selected.has(row);
+    check.addEventListener("change", () => {
+        if (check.checked) selected.add(row);
+        else selected.delete(row);
+        action.disabled = !selected.size;
+    });
+    return check;
 }
 
 async function newPurchase(company) {
@@ -159,14 +199,56 @@ async function showSeatBatches(company, pool, after = 0) {
     });
 }
 
-async function showSeatBatch(company, pool, id) {
+async function showSeatBatch(company, pool, id, selected = new Set()) {
     await display("companies", async () => {
-        const receipt = await api(`${companyUrl(company.id)}/purchases/${pool.id}/batches/${id}`);
-        const rows = receipt.items.map((item) => [item.row, item.department_id, item.learner_id,
-            item.outcome === "assigned" ? "已分配" : stateLabels[item.outcome], item.seat_number, errorLabels[item.reason] ?? item.reason]);
+        const url = `${companyUrl(company.id)}/purchases/${pool.id}/batches/${id}`;
+        const receipt = await api(url);
+        const actions = block("div", "toolbar", button("返回合同", () => showPool(company, pool.id)));
+        if (receipt.retry_of) {
+            const original = new Set(receipt.items.map((item) => item.source_row));
+            actions.append(button(`来源回执 #${receipt.retry_of}`, () => showSeatBatch(company, pool, receipt.retry_of, original)));
+        }
+        const columns = ["行号", "部门编号", "学员编号", "结果", "席位号", "原因"];
+        if (receipt.retry_of) columns.splice(1, 0, "来源行号");
+        const rows = receipt.items.map((item) => {
+            const cells = [item.row, item.department_id, item.learner_id,
+                item.outcome === "assigned" ? "已分配" : stateLabels[item.outcome], item.seat_number, errorLabels[item.reason] ?? item.reason];
+            if (receipt.retry_of) cells.splice(1, 0, item.source_row);
+            return cells;
+        });
+        const canRetry = (item) => item.outcome === "rejected" && item.department_id != null && item.learner_id != null;
+        if (pool.active && receipt.items.some(canRetry)) {
+            let pending;
+            const submit = button("重试所选行", async () => {
+                const rows = [...selected].sort((left, right) => left - right);
+                const signature = rows.join(",");
+                if (pending?.signature !== signature) pending = {signature, key: crypto.randomUUID()};
+                submit.disabled = true;
+                checks.forEach((check) => { check.disabled = true; });
+                try {
+                    const result = await api(`${url}/retry`, "POST", {rows}, pending.key);
+                    await showSeatBatch(company, pool, result.id);
+                } finally {
+                    submit.disabled = !selected.size;
+                    checks.forEach((check) => { check.disabled = false; });
+                }
+            }, "primary");
+            const checks = [];
+            selected = new Set(receipt.items.filter((item) => canRetry(item) && selected.has(item.row)).map((item) => item.row));
+            submit.disabled = !selected.size;
+            columns.push("选择重试");
+            rows.forEach((cells, index) => {
+                const item = receipt.items[index];
+                if (!canRetry(item)) { cells.push(null); return; }
+                const check = selectBatchRow(item.row, selected, submit);
+                checks.push(check);
+                cells.push(check);
+            });
+            actions.append(submit);
+        }
         return [back("分配回执", () => showSeatBatches(company, pool)), heading(`分配回执 #${id}`, `${pool.contract_code} · ${receipt.created_at} UTC`,
-            button("返回合同", () => showPool(company, pool.id))), block("div", "surface", metric("提交后剩余席位", receipt.available_at_commit)),
-            block("div", "surface", table(["行号", "部门编号", "学员编号", "结果", "席位号", "原因"], rows, "暂无分配结果。"))];
+            actions), block("div", "surface", metric("提交后剩余席位", receipt.available_at_commit)),
+            block("div", "surface", table(columns, rows, "暂无分配结果。"))];
     });
 }
 

@@ -306,6 +306,9 @@ async function showExamMarking(cohort, sitting, teaching, row) {
     await display(teaching ? "teaching" : "cohorts", async () => {
         const path = examsApi + "/attempts/" + row.id;
         const attempt = await api(path + "/marking");
+        const assignment = attempt.marking_assignment;
+        const activeAssignment = assignment && assignment.closed_at === null;
+        const refresh = () => showExamMarking(cohort, sitting, teaching, row);
         const action = attempt.can_mark ? button("批改简答题", () => {
             const questions = attempt.items.filter((item) => item.kind === "written" && item.answer !== null);
             const controls = questions.map((item) => examItemCard(item, [
@@ -316,14 +319,43 @@ async function showExamMarking(cohort, sitting, teaching, row) {
             openForm("批改简答题", controls, async (form) => {
                 const scores = form.getAll("points");
                 const notes = form.getAll("feedback");
-                await api(path + "/grade", "POST", {marks: questions.map((item, index) => ({
+                const body = {marks: questions.map((item, index) => ({
                     ordinal: item.ordinal, points: Number(scores[index]), feedback: notes[index],
-                }))});
-                return () => showExamMarking(cohort, sitting, teaching, row);
+                }))};
+                if (activeAssignment) body.marking_assignment_id = assignment.id;
+                await api(path + "/grade", "POST", body);
+                return refresh;
             }, "公布成绩");
         }, "primary") : null;
+        const actions = block("div", "toolbar");
+        if (action) actions.append(action);
+        if (attempt.can_assign_marking && attempt.marking_candidates.length) {
+            actions.append(button(activeAssignment ? "更换阅卷人" : "指派阅卷人", () => {
+                const choices = attempt.marking_candidates.map((candidate) => [candidate.id, candidate.name]);
+                openForm("指派阅卷人", [field("assigned_to", "阅卷人", "select", choices[0][0], {choices})], async (form) => {
+                    await api(path + "/marking-assignment", "PUT", {
+                        assigned_to: Number(form.get("assigned_to")), expected_assignment_id: assignment?.id ?? null,
+                    });
+                    return refresh;
+                }, "确认指派");
+            }));
+        }
+        if (attempt.can_assign_marking && activeAssignment) {
+            actions.append(button("撤销阅卷指派", () => {
+                openForm("撤销阅卷指派", [element("p", `当前阅卷人 ${assignment.assigned_to_name}`)], async () => {
+                    await api(path + "/marking-assignment", "PUT", {assigned_to: null, expected_assignment_id: assignment.id});
+                    return refresh;
+                }, "确认撤销");
+            }));
+        }
         const status = attempt.score === null ? "待阅卷" : "得分 " + attempt.score + " / 100";
-        return [back("场次答卷", () => showExamRoster(cohort, sitting, teaching)), heading(row.learner_name, attempt.title + " · " + status, action),
-            ...attempt.items.map((item) => examReadOnlyItem(item, true))];
+        const content = [back("场次答卷", () => showExamRoster(cohort, sitting, teaching)), heading(row.learner_name, attempt.title + " · " + status,
+            actions.childElementCount ? actions : null)];
+        if (assignment) {
+            const assignmentLabels = {revoked: "已撤销", completed: "已完成"};
+            const annotation = `${assignment.assigned_by_name} 指派 ${assignment.assigned_to_name} · ${assignmentLabels[assignment.closed_reason] ?? "待阅卷"}`;
+            content.push(block("div", "surface", element("p", annotation, "work-text")));
+        }
+        return [...content, ...attempt.items.map((item) => examReadOnlyItem(item, true))];
     });
 }

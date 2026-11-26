@@ -38,11 +38,11 @@ def purchase(client, url, course, total, code, *, expired=False, status=201):
                                         ends_on=(today + timedelta(days=-1 if expired else 1)).isoformat()), status)
 
 
-def race(identity, requests, executable=FIXTURE):
+def race(identity, requests, executable=FIXTURE, command="race"):
     processes = []
     try:
         for _ in requests:
-            process = subprocess.Popen([*executable, "race", *map(str, identity)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            process = subprocess.Popen([*executable, command, *map(str, identity)], stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                                        stderr=subprocess.PIPE, text=True, encoding="utf-8")
             processes.append(process)
         for process in processes:
@@ -125,6 +125,19 @@ def run(origin):
     assert manager.call(batch_url)["items"][0]["row_count"] == 104
     totals = manager.call(detail_url)["departments"]
     assert [item["assigned"] + item["activated"] for item in totals] == [40, 35, 25]
+    source_url = f"{batch_url}/{receipt['id']}"
+    retry_url = f"{source_url}/retry"
+    full_row = receipt["items"][-1]["row"]
+    assert other.call(retry_url, "POST", {"rows": [full_row]}, 404, "outside-company")["error"] == "company_not_found"
+    assert manager.call(retry_url, "POST", {"rows": [full_row, full_row]}, 422, "repeat-row")["error"] == "duplicate_seat_retry_row"
+    blocked = manager.call(retry_url, "POST", {"rows": [full_row, 3, 1, 500]}, 201, "retry-full")
+    assert blocked["retry_of"] == receipt["id"]
+    assert [(item["source_row"], item["reason"]) for item in blocked["items"]] == [
+        (1, "seat_retry_row_unavailable"), (3, "seat_retry_row_unavailable"),
+        (full_row, "contract_quota_exhausted"), (500, "seat_retry_row_unavailable"),
+    ]
+    assert manager.call(retry_url, "POST", {"rows": [1, 500, full_row, 3]}, key="retry-full") == {**blocked, "replayed": True}
+    assert manager.call(retry_url, "POST", {"rows": [full_row]}, 409, "retry-full")["error"] == "request_key_reused"
 
     a_id, b_id, c_id = [item["assignment_id"] for item in allocated[:3]]
     learner_a, learner_b = Session(origin), Session(origin)
@@ -146,8 +159,13 @@ def run(origin):
     assert manager.call(reclaim(c_id), "POST")["state"] == "reclaimed"
     assert manager.call(reclaim(c_id), "POST")["state"] == "reclaimed"
     assert manager.call(detail_url)["available"] == 1
-    reassigned = manager.call(batch_url, "POST", {"cohort_id": cohort, "rows": rows[-1:]}, 201, "reassigned")
-    assert reassigned["items"][0]["seat_number"] == 101 and reassigned["available_at_commit"] == 0
+    reassigned = manager.call(retry_url, "POST", {"rows": [full_row]}, 201, "reassigned")
+    assert reassigned["retry_of"] == receipt["id"] and reassigned["available_at_commit"] == 0
+    assert len(reassigned["items"]) == 1 and reassigned["items"][0]["source_row"] == full_row
+    assert reassigned["items"][0]["seat_number"] == 101 and reassigned["items"][0]["outcome"] == "assigned"
+    assert manager.call(retry_url, "POST", {"rows": [full_row]}, key="reassigned") == {**reassigned, "replayed": True}
+    assert manager.call(source_url)["items"] == receipt["items"]
+    assert manager.call(f"{batch_url}/{reassigned['id']}")["items"] == reassigned["items"]
 
     race_pool = purchase(admin, purchase_url, course, 5, "race-contract")
     identity = [info["tenant_id"], manager_id, company_id, race_pool["id"]]
@@ -162,7 +180,7 @@ def run(origin):
     admin.call(f"{url}/administrators/{manager_id}", "PUT", {"enabled": False})
     assert "enterprise_admin" not in manager.call("/api/session")["actor"]["roles"]
     assert manager.call(detail_url, status=404)["error"] == "company_not_found"
-    print("Enterprise seats passed: 40/35/25 allocation, mixed receipts and replay, scope and revocation, activation and reclaim, 100 contenders across 10 MySQL connections for 5 seats.")
+    print("Enterprise seats passed: 40/35/25 allocation, mixed receipts and selected retry, scope and revocation, activation and reclaim, 100 contenders across 10 MySQL connections for 5 seats.")
 
 
 if __name__ == "__main__":

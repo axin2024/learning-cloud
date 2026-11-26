@@ -56,7 +56,9 @@ def run(origin):
     timeout, _ = create_member(admin, origin, tenant, password, "timeout", ["learner"])
     absent, _ = create_member(admin, origin, tenant, password, "absent", ["learner"])
     marker, marker_id = create_member(admin, origin, tenant, password, "marker", ["instructor"])
-    outsider, _ = create_member(admin, origin, tenant, password, "outsider", ["instructor"])
+    outsider, outsider_id = create_member(admin, origin, tenant, password, "outsider", ["instructor"])
+    delegate, delegate_id = create_member(admin, origin, tenant, password, "delegate", ["instructor"])
+    replacement, replacement_id = create_member(admin, origin, tenant, password, "replacement", ["instructor"])
 
     course = publish(admin, "kiln-operations")
     cohort = create_cohort(admin, course, "kiln", 3)["id"]
@@ -69,7 +71,10 @@ def run(origin):
     b = enroll(timeout, cohort, "exam-timeout")["id"]
     c = enroll(absent, cohort, "exam-absent")["id"]
     latest_enrollment = enroll(learner, latest_cohort, "exam-latest")["id"]
-    admin.call(f"/api/coursework/cohorts/{cohort}/staff/{marker_id}", "PUT", {"duty": "instructor"})
+    staff_url = f"/api/coursework/cohorts/{cohort}/staff"
+    admin.call(f"{staff_url}/{marker_id}", "PUT", {"duty": "instructor"})
+    admin.call(f"{staff_url}/{delegate_id}", "PUT", {"duty": "assistant"})
+    admin.call(f"{staff_url}/{replacement_id}", "PUT", {"duty": "instructor"})
 
     def single(prompt, correct=1):
         return dict(kind="single", prompt=prompt, options=["First", "Second"], correct=[correct])
@@ -149,10 +154,54 @@ def run(origin):
     repeat = start(reconnect, a, second)
     assert repeat["id"] != attempt_id and repeat["paper_revision"] == 2
     practice = f"/api/exams/attempts/{repeat['id']}"
+    assignment_url = practice + "/marking-assignment"
+    def assign(session, target, previous=None, status=200):
+        return session.call(assignment_url, "PUT", {"assigned_to": target, "expected_assignment_id": previous}, status)
+
+    assert assign(marker, delegate_id, status=409)["error"] == "exam_attempt_not_submitted"
     reconnect.call(practice + "/answers", "PUT", answers)
     submit(reconnect, repeat["id"])
-    assert marker.call(practice + "/marking")["items"][1]["guidance"].endswith("safe restart")
-    assert marker.call(practice + "/grade", "POST", {"marks": [dict(ordinal=2, points=23)]})["score"] == 78
+    marking = marker.call(practice + "/marking")
+    assert marking["items"][1]["guidance"].endswith("safe restart")
+    assert {candidate["id"] for candidate in marking["marking_candidates"]} == {delegate_id, replacement_id}
+    assert assign(outsider, delegate_id, status=404)["error"] == "teaching_cohort_not_found"
+    assert assign(marker, outsider_id, status=422)["error"] == "exam_marking_delegate_ineligible"
+    assert assign(marker, marker_id, status=422)["error"] == "exam_marking_delegate_ineligible"
+    granted = assign(marker, delegate_id)
+    assert granted["assigned_by"] == marker_id and granted["assigned_to"] == delegate_id
+    assert assign(marker, delegate_id, granted["id"]) == granted
+    assert assign(replacement, None, granted["id"], 403)["error"] == "exam_marking_assignment_managed_by_grantor"
+    substituted = assign(admin, replacement_id, granted["id"])
+    grade_path = practice + "/grade"
+    marks = {"marks": [dict(ordinal=2, points=23)]}
+    assert delegate.call(grade_path, "POST", dict(marks, marking_assignment_id=granted["id"]), 409)["error"] == "exam_marking_assignment_changed"
+    assert marker.call(grade_path, "POST", dict(marks, marking_assignment_id=substituted["id"]), 403)["error"] == "exam_marking_assigned_elsewhere"
+    assert assign(admin, None, granted["id"], 409)["error"] == "exam_marking_assignment_changed"
+    assert assign(admin, None, substituted["id"])["closed_reason"] == "revoked"
+    assert assign(marker, delegate_id, None, 409)["error"] == "exam_marking_assignment_changed"
+    assigned = assign(marker, delegate_id, substituted["id"])
+    by_delegate = dict(marks, marking_assignment_id=assigned["id"])
+    assert not marker.call(practice + "/marking")["can_mark"]
+    assert delegate.call(practice + "/marking")["can_mark"]
+    admin.call(f"{staff_url}/{delegate_id}", "PUT", {"duty": "none"})
+    assert delegate.call(grade_path, "POST", by_delegate, 404)["error"] == "teaching_cohort_not_found"
+    admin.call(f"{staff_url}/{delegate_id}", "PUT", {"duty": "assistant"})
+    grades = race([tenant_id, delegate_id, repeat["id"]], [by_delegate] * 6, [*PHP, "tests/exams_fixture.php"], "race-grade")
+    assert {item["score"] for item in grades} == {78}
+    assert sum(not item["replayed"] for item in grades) == 1
+    assert {item["grade_published_events"] for item in grades} == {1}
+    assert delegate.call(grade_path, "POST", by_delegate)["replayed"]
+    finished = marker.call(practice + "/marking")
+    assert finished["marker_id"] == delegate_id and finished["marking_assignment"]["closed_reason"] == "completed"
+    assert not finished["can_assign_marking"] and not finished["can_mark"]
+    assert assign(marker, replacement_id, assigned["id"], 409)["error"] == "exam_attempt_already_graded"
+    assert "marking_assignment" not in reconnect.call(practice)
+    audit = subprocess.run([*PHP, "tests/exams_fixture.php", "marking-audit", str(tenant_id), str(delegate_id), str(repeat["id"])],
+                           capture_output=True, text=True, encoding="utf-8", check=True)
+    history = json.loads(audit.stdout)
+    assert [item["closed_reason"] for item in history["history"]] == ["replaced", "revoked", "completed"]
+    assert history["events"][-1] == {"actor_id": delegate_id, "action": "grade_published",
+                                     "details": {"score": 78, "assignment_id": assigned["id"], "assigned_by": marker_id}}
     rows = reconnect.call(f"/api/exams/enrollments/{a}")
     assert [item["score"] for item in rows["items"]] == [55, 78]
     assert rows["effective_result"]["score"] == 78 and rows["effective_result"]["passed"] is True
@@ -162,7 +211,7 @@ def run(origin):
     latest = learner.call(f"/api/exams/enrollments/{latest_enrollment}")["effective_result"]
     assert latest["sequence"] == 2 and latest["score"] == 0 and not latest["passed"]
     assert len(marker.call(f"/api/exams/sittings/{first}/attempts")["items"]) == 2
-    print("AC-11–12 passed: frozen resit papers, scores 55/78, latest policy, reconnect, six competing submits with one result, and server sweep.")
+    print("AC-11–12 passed: frozen resit papers, scores 55/78, reconnect and sweep, scoped marking assignment, and six competing submits or grades with one result each.")
 
 
 if __name__ == "__main__":

@@ -284,15 +284,19 @@ final class Http
         if ($method === 'PUT' && preg_match('~\A/api/companies/([1-9][0-9]*)/administrators/([1-9][0-9]*)\z~', $path, $parts)) {
             return [200, $companies->setAdministrator($actor, $this->id($parts[1]), $this->id($parts[2]), $input)];
         }
-        if (preg_match('~\A/api/companies/([1-9][0-9]*)/purchases/([1-9][0-9]*)(?:/(batches|assignments)(?:/([1-9][0-9]*)(/reclaim)?)?)?\z~', $path, $parts)) {
+        if (preg_match('~\A/api/companies/([1-9][0-9]*)/purchases/([1-9][0-9]*)(?:/(batches|assignments)(?:/([1-9][0-9]*)(?:/(reclaim|retry))?)?)?\z~', $path, $parts)) {
             $company = $this->id($parts[1]);
             $pool = $this->id($parts[2]);
             $resource = $parts[3] ?? '';
             if (isset($parts[4])) {
                 $id = $this->id($parts[4]);
-                return match ([$method, $resource, isset($parts[5])]) {
-                    ['GET', 'batches', false] => [200, $seats->batch($actor, $company, $pool, $id)],
-                    ['POST', 'assignments', true] => [200, $seats->reclaim($actor, $company, $pool, $id)],
+                if ([$method, $resource, $parts[5] ?? ''] === ['POST', 'batches', 'retry']) {
+                    $receipt = $seats->retry($actor, $company, $pool, $id, $input, Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null));
+                    return [$receipt['replayed'] ? 200 : 201, $receipt];
+                }
+                return match ([$method, $resource, $parts[5] ?? '']) {
+                    ['GET', 'batches', ''] => [200, $seats->batch($actor, $company, $pool, $id)],
+                    ['POST', 'assignments', 'reclaim'] => [200, $seats->reclaim($actor, $company, $pool, $id)],
                     default => $this->notFound(),
                 };
             }
@@ -452,12 +456,13 @@ final class Http
                 return [$result['replayed'] ? 200 : 201, $result];
             }
         }
-        if (preg_match('~\A/api/exams/attempts/([1-9][0-9]*)(?:/(answers|submit|marking|grade))?\z~', $path, $parts)) {
+        if (preg_match('~\A/api/exams/attempts/([1-9][0-9]*)(?:/(answers|submit|marking|marking-assignment|grade))?\z~', $path, $parts)) {
             $id = $this->id($parts[1]);
             $action = $parts[2] ?? '';
             return match ([$method, $action]) {
                 ['GET', ''] => [200, $exams->detail($actor, $id, false)],
                 ['GET', 'marking'] => [200, $exams->detail($actor, $id, true)],
+                ['PUT', 'marking-assignment'] => [200, $exams->assignMarking($actor, $id, $input)],
                 ['PUT', 'answers'] => [200, $exams->save($actor, $id, $input)],
                 ['POST', 'submit'] => [200, $exams->submit($actor, $id, $input)],
                 ['POST', 'grade'] => [200, $exams->grade($actor, $id, $input)],

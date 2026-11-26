@@ -1,0 +1,38 @@
+{
+  "previous_tag": "v1.0.1",
+  "previous_commit": "49a25a2b10190088a50948282a5aafe3f3fef059",
+  "upgrade_applied": [
+    "009_exam_marking_assignments"
+  ],
+  "upgraded_equal_tables": [
+    "accounts",
+    "course_revisions",
+    "enrollments",
+    "seat_batches",
+    "study_spans",
+    "exam_attempts",
+    "credentials"
+  ],
+  "upgraded_certificate_verification": "valid",
+  "fresh_migration_count": 9,
+  "restored_equal_tables": [
+    "accounts",
+    "course_revisions",
+    "enrollments",
+    "seat_batches",
+    "study_spans",
+    "exam_attempts",
+    "credentials",
+    "exam_marking_assignments"
+  ],
+  "restored_certificate_verification": "valid",
+  "demo": {
+    "attendance_seconds": 600,
+    "assignment_score": 90,
+    "exam_score": 100,
+    "department_completions": 1,
+    "practicum_eligible": true
+  },
+  "dump_bytes": 72900,
+  "dump_sha256": "6e8d90c915c0ce3b8feb32a0d2b997b0f5801fce4e083abd871fcb432489dabb"
+}

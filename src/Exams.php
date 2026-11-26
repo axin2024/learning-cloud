@@ -95,7 +95,17 @@ final readonly class Exams
                 if ($attempt['submitted_at'] === null) {
                     throw new Problem(409, 'exam_attempt_not_submitted');
                 }
-                return $this->view($tenant, $attempt, true, false);
+                $assignment = $this->markingAssignment($tenant, $id);
+                $activeAssignment = $assignment !== null && $assignment['closed_at'] === null;
+                $view = $this->view($tenant, $attempt, true, false);
+                $canAssign = $view['can_mark'] && (!$activeAssignment || $actor->managesCatalog() || $assignment['assigned_by'] === $actor->accountId);
+                $view['can_mark'] = $view['can_mark'] && (!$activeAssignment || $assignment['assigned_to'] === $actor->accountId);
+                return $view + [
+                    'marking_assignment' => $assignment,
+                    'marker_id' => $attempt['marker_id'],
+                    'can_assign_marking' => $canAssign,
+                    'marking_candidates' => $canAssign ? $this->staff->examMarkers($actor, $attempt['cohort_id'], $attempt['learner_id']) : [],
+                ];
             }
             $enrollment = $this->ownEnrollment($actor, $attempt['enrollment_id']);
             return $this->view($tenant, $attempt, false, $this->active($enrollment));
@@ -166,16 +176,60 @@ final readonly class Exams
         });
     }
 
+    public function assignMarking(Actor $actor, int $id, array $input): array
+    {
+        if (!array_key_exists('assigned_to', $input) || !array_key_exists('expected_assignment_id', $input)) {
+            throw new Problem(422, 'invalid_exam_marking_assignment');
+        }
+        $delegate = $input['assigned_to'] === null ? null : Input::integer($input, 'assigned_to', 1);
+        $expected = $input['expected_assignment_id'] === null ? null : Input::integer($input, 'expected_assignment_id', 1);
+        return $this->store->transaction(function () use ($actor, $id, $delegate, $expected): array {
+            $attempt = $this->lockForMarking($actor, $id);
+            if ($attempt['graded_at'] !== null) {
+                throw new Problem(409, 'exam_attempt_already_graded');
+            }
+            $tenant = $actor->tenantId;
+            $assignment = $this->markingAssignment($tenant, $id);
+            if (($assignment['id'] ?? null) !== $expected) {
+                throw new Problem(409, 'exam_marking_assignment_changed');
+            }
+            $active = $assignment !== null && $assignment['closed_at'] === null;
+            if ($active && !$actor->managesCatalog() && $assignment['assigned_by'] !== $actor->accountId) {
+                throw new Problem(403, 'exam_marking_assignment_managed_by_grantor');
+            }
+            if ($delegate === null && !$active) {
+                throw new Problem(409, 'exam_marking_assignment_inactive');
+            }
+            if ($delegate !== null) {
+                if (!$this->staff->examMarkers($actor, $attempt['cohort_id'], $attempt['learner_id'], $delegate)) {
+                    throw new Problem(422, 'exam_marking_delegate_ineligible');
+                }
+                if ($active && $assignment['assigned_to'] === $delegate) {
+                    return $assignment;
+                }
+            }
+            if ($active) {
+                $this->closeMarkingAssignment($tenant, $assignment['id'], $delegate === null ? 'revoked' : 'replaced');
+            }
+            if ($delegate === null) {
+                $this->audit->record($actor, 'exam_attempt', $id, 'marking_assignment_revoked', ['assignment_id' => $assignment['id']]);
+            } else {
+                $assigned = $this->store->insert('INSERT INTO exam_marking_assignments (tenant_id, attempt_id, assigned_by, assigned_to) VALUES (?, ?, ?, ?)',
+                    [$tenant, $id, $actor->accountId, $delegate]);
+                $this->audit->record($actor, 'exam_attempt', $id, 'marking_assigned', [
+                    'assignment_id' => $assigned, 'assigned_to' => $delegate, 'replaces' => $active ? $assignment['id'] : null,
+                ]);
+            }
+            return $this->markingAssignment($tenant, $id);
+        });
+    }
+
     public function grade(Actor $actor, int $id, array $input): array
     {
-        return $this->store->transaction(function () use ($actor, $id, $input): array {
+        $assignmentId = isset($input['marking_assignment_id']) ? Input::integer($input, 'marking_assignment_id', 1) : null;
+        return $this->store->transaction(function () use ($actor, $id, $input, $assignmentId): array {
             $tenant = $actor->tenantId;
-            $scope = $this->attempt($tenant, $id);
-            $this->staff->requireMarker($actor, $scope['cohort_id'], true);
-            $attempt = $this->attempt($tenant, $id, 'FOR UPDATE');
-            if ($attempt['submitted_at'] === null) {
-                throw new Problem(409, 'exam_attempt_not_submitted');
-            }
+            $attempt = $this->lockForMarking($actor, $id);
             $items = $this->items($tenant, $id);
             $written = array_column(array_filter($items, static fn (array $item) => $item['kind'] === 'written' && $item['answer'] !== null), null, 'ordinal');
             if ($written === []) {
@@ -196,12 +250,20 @@ final readonly class Exams
                 ];
             }
             ksort($marks);
-            $digest = hash('sha256', json_encode($marks, JSON_THROW_ON_ERROR));
+            $digest = hash('sha256', json_encode($assignmentId === null ? $marks : [$marks, $assignmentId], JSON_THROW_ON_ERROR));
             if ($attempt['graded_at'] !== null) {
                 if ($attempt['marker_id'] === $actor->accountId && $attempt['grade_digest'] === $digest) {
                     return $this->receipt($attempt) + ['replayed' => true];
                 }
                 throw new Problem(409, 'exam_attempt_already_graded');
+            }
+            $assignment = $this->markingAssignment($tenant, $id);
+            $activeId = ($assignment['closed_at'] ?? null) === null ? ($assignment['id'] ?? null) : null;
+            if ($activeId !== $assignmentId) {
+                throw new Problem(409, 'exam_marking_assignment_changed');
+            }
+            if ($activeId !== null && $assignment['assigned_to'] !== $actor->accountId) {
+                throw new Problem(403, 'exam_marking_assigned_elsewhere');
             }
             foreach ($marks as $ordinal => $mark) {
                 $this->store->execute('UPDATE exam_items SET awarded=?, feedback=? WHERE tenant_id=? AND attempt_id=? AND ordinal=?',
@@ -210,9 +272,40 @@ final readonly class Exams
             $score = $this->total($tenant, $id);
             $this->store->execute('UPDATE exam_attempts SET score=?, graded_at=UTC_TIMESTAMP(6), marker_id=?, grade_digest=? WHERE tenant_id=? AND id=?',
                 [$score, $actor->accountId, $digest, $tenant, $id]);
-            $this->audit->record($actor, 'exam_attempt', $id, 'grade_published', ['score' => $score]);
+            $metadata = ['score' => $score];
+            if ($activeId !== null) {
+                $this->closeMarkingAssignment($tenant, $activeId, 'completed');
+                $metadata += ['assignment_id' => $activeId, 'assigned_by' => $assignment['assigned_by']];
+            }
+            $this->audit->record($actor, 'exam_attempt', $id, 'grade_published', $metadata);
             return $this->receipt($this->attempt($tenant, $id)) + ['replayed' => false];
         });
+    }
+
+    private function lockForMarking(Actor $actor, int $id): array
+    {
+        $scope = $this->attempt($actor->tenantId, $id);
+        $this->staff->requireMarker($actor, $scope['cohort_id'], true);
+        $attempt = $this->attempt($actor->tenantId, $id, 'FOR UPDATE');
+        if ($attempt['submitted_at'] === null) {
+            throw new Problem(409, 'exam_attempt_not_submitted');
+        }
+        return $attempt;
+    }
+
+    private function markingAssignment(int $tenant, int $attempt): ?array
+    {
+        return $this->store->one('SELECT m.id, m.assigned_by, m.assigned_to, m.assigned_at, m.closed_at, m.closed_reason,
+                grantor.name AS assigned_by_name, delegate.name AS assigned_to_name
+            FROM exam_marking_assignments m JOIN accounts grantor ON grantor.tenant_id=m.tenant_id AND grantor.id=m.assigned_by
+            JOIN accounts delegate ON delegate.tenant_id=m.tenant_id AND delegate.id=m.assigned_to
+            WHERE m.tenant_id=? AND m.attempt_id=? ORDER BY m.id DESC LIMIT 1', [$tenant, $attempt]);
+    }
+
+    private function closeMarkingAssignment(int $tenant, int $id, string $reason): void
+    {
+        $this->store->execute('UPDATE exam_marking_assignments SET closed_at=UTC_TIMESTAMP(6), closed_reason=? WHERE tenant_id=? AND id=?',
+            [$reason, $tenant, $id]);
     }
 
     public function sweep(int $limit): array
@@ -337,9 +430,10 @@ final readonly class Exams
 
     private function attempt(int $tenant, int $id, string $lock = ''): array
     {
-        return $this->store->one('SELECT a.*, s.cohort_id, s.title, p.revision AS paper_revision FROM exam_attempts a
+        return $this->store->one('SELECT a.*, s.cohort_id, s.title, p.revision AS paper_revision, e.learner_id FROM exam_attempts a
             JOIN exam_sittings s ON s.tenant_id=a.tenant_id AND s.id=a.sitting_id
             JOIN exam_papers p ON p.tenant_id=s.tenant_id AND p.id=s.paper_id
+            JOIN enrollments e ON e.tenant_id=a.tenant_id AND e.id=a.enrollment_id
             WHERE a.tenant_id=? AND a.id=?' . ($lock === '' ? '' : " $lock OF a"), [$tenant, $id])
             ?? throw new Problem(404, 'exam_attempt_not_found');
     }

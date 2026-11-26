@@ -1,5 +1,5 @@
 # 安全政策
 
-支持当前 1.0 系列的最新补丁版本。通过 GitHub 仓库 Security 页选择 Report a vulnerability 私下报告；Gitee 用户也可以使用同一入口。
+支持当前 1.x 系列的最新发行版。通过 GitHub 仓库的 Security 页面选择 Report a vulnerability 私下报告，Gitee 用户也可以使用同一入口。
 
 报告中附上版本、受影响角色、最小复现条件和可观察结果。请使用合成账号与请求样例，并移除凭据、个人数据及生产日志原文。协作确认影响范围及修复版本后再公开详情。
