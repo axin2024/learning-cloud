@@ -15,7 +15,7 @@ final class Store
     {
     }
 
-    public static function connect(): self
+    public static function connect(bool $publicVerification = false): self
     {
         $dsn = getenv('LEARNING_DSN');
         $user = getenv('LEARNING_DB_USER');
@@ -23,14 +23,20 @@ final class Store
         if (!is_string($dsn) || !str_starts_with($dsn, 'mysql:') || $user === false || $password === false) {
             throw new RuntimeException('Set LEARNING_DSN, LEARNING_DB_USER and LEARNING_DB_PASSWORD.');
         }
-        $pdo = new PDO($dsn, $user, $password, [
+        $options = [
             PDO::ATTR_ERRMODE => PDO::ERRMODE_EXCEPTION,
             PDO::ATTR_DEFAULT_FETCH_MODE => PDO::FETCH_ASSOC,
             PDO::ATTR_EMULATE_PREPARES => false,
             PDO::ATTR_STRINGIFY_FETCHES => false,
-        ]);
-        $pdo->exec("SET time_zone = '+00:00'");
-        $pdo->exec('SET SESSION TRANSACTION ISOLATION LEVEL READ COMMITTED');
+        ];
+        // Each PHP worker may retain one connection reserved for public SELECTs.
+        // Initialize the session on connection creation, including after a reconnect.
+        $initOption = defined('Pdo\\Mysql::ATTR_INIT_COMMAND') ? constant('Pdo\\Mysql::ATTR_INIT_COMMAND') : PDO::MYSQL_ATTR_INIT_COMMAND;
+        $options[$initOption] = "SET SESSION time_zone = '+00:00', SESSION transaction_isolation = 'READ-COMMITTED'";
+        if ($publicVerification && getenv('LEARNING_VERIFY_PERSISTENT') !== '0') {
+            $options[PDO::ATTR_PERSISTENT] = 'learning-public-verification';
+        }
+        $pdo = new PDO($dsn, $user, $password, $options);
         return new self($pdo);
     }
 

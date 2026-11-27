@@ -6,6 +6,7 @@
 | `LEARNING_DB_USER` | 原生部署必填。Compose 默认 `learning_cloud`。 |
 | `LEARNING_DB_PASSWORD` | 应用数据库密码。Web、迁移与后台服务均需读取。 |
 | `LEARNING_COOKIE_SECURE` | 默认 `1`，通过 HTTPS 使用工作台。本机 HTTP 演示设置为 `0`。 |
+| `LEARNING_VERIFY_PERSISTENT` | 默认按 PHP 工作进程复用一个独立的公开查验数据库连接。设为 `0` 后每次查验重新连接。请在数据库连接预算中预留工作进程所需连接。 |
 | `LEARNING_DB_NAME` | Compose 初始化的数据库名，默认 `learning_cloud`。 |
 | `LEARNING_MYSQL_ROOT_PASSWORD` | Compose 首次初始化数据库的管理密码。 |
 | `LEARNING_HTTP_PORT` | Compose 发布的回环端口，默认 `8080`。 |

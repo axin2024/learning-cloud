@@ -8,6 +8,8 @@ Learning Cloud 面向职业教育机构和企业培训部门，使用 PHP 和 My
 - [配置参考](docs/configuration.md)
 - [从空库到一张可查验证书的演示](docs/demo.md)
 - [备份与恢复](docs/backup-and-restore.md)
+- [岗位认证演示：从三人交件、双评和申诉到部门覆盖率](docs/practicums.md)
+- [岗位认证验收与容量实测](docs/competency-verification.md)
 
 ### 本机开发
 
@@ -33,6 +35,7 @@ php -S 127.0.0.1:8080 -t public public/index.php
 - [开源与发布](docs/requirements/05-开源与发布-prd.md)
 - [状态与操作契约](docs/requirements/06-状态与操作契约-prd.md)
 - [开源项目说明与使用案例](docs/requirements/07-开源项目说明与使用案例-prd.md)
+- [岗位能力认证与实训考核](docs/requirements/08-岗位能力认证与实训考核-prd.md)
 
 ## 功能与验收
 

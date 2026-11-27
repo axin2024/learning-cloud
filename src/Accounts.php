@@ -22,6 +22,7 @@ final readonly class Accounts
         try {
             return $this->store->transaction(function () use ($slug, $tenantName, $email, $name, $passwordHash): Actor {
                 $tenantId = $this->store->insert('INSERT INTO tenants (slug, name) VALUES (?, ?)', [$slug, $tenantName]);
+                $this->store->execute("INSERT INTO competency_rollouts (tenant_id,mode) VALUES (?,'enabled')",[$tenantId]);
                 $id = $this->insertAccount($tenantId, $email, $name, $passwordHash, ['admin']);
                 $actor = new Actor($tenantId, $id, $name, ['admin']);
                 $this->audit->record($actor, 'tenant', $tenantId, 'provisioned', ['slug' => $slug]);

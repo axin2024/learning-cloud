@@ -43,3 +43,26 @@ curl --fail http://127.0.0.1:8080/healthz
 ```
 
 复查已有课程、班期、历史成绩与证书，再恢复外部流量。迁移按编号记录并校验文件摘要。回退时先恢复到独立数据库、用旧版本验证，再切换流量与后台进程。
+
+### 从 v1.1 启用岗位认证
+
+下列命令中的 `12` 为示例租户主键。先用新版本 CLI 对旧库运行预检，记录已结业人数、归属冲突及待回填编号。完成备份、迁移后，已有租户进入 `backfill`。新建租户直接启用。
+
+```sh
+php bin/learning.php competency-rollout preflight 12
+php bin/learning.php migrate
+php bin/learning.php competency-rollout batch 12 100
+php bin/learning.php competency-rollout preflight 12
+php bin/learning.php competency-rollout enable 12
+```
+
+重复执行 `batch` 至 `imported` 为零。每批提交时一起保存课程修订、来源摘要与进度，进程退出后可以继续。预检中的 `missing_or_changed`、`orphaned`、`scope_conflicts` 均为零后才能启用。学员可在 `GET /api/me/competency-prerequisites` 读取导入的结业记录；岗位凭证另按实训和评审结果签发。
+
+退出试点时先排空新写入，再分页导出待评审、待申诉、待审批和待复训事项。原幂等键仍可回读已提交结果。下一页将上页的 `next_after` 作为最后一个参数，值为 `null` 时结束。
+
+```sh
+php bin/learning.php competency-rollout drain 12
+php bin/learning.php competency-rollout pending 12 100 0
+```
+
+需要保留试点期间的业务时，保留当前数据库及作品快照，用配套版本提供查验并处理已导出的事项。恢复服务前重新核对课程结业数，执行 `enable`。

@@ -23,7 +23,7 @@ async function showCompany(id, after = 0) {
         const url = companyUrl(id);
         const [company, page] = await Promise.all([api(url), api(`${url}/purchases?after=${after}`)]);
         const actions = block("div", "toolbar", button("部门与名单", () => showCompanyLearners(company)),
-            button("部门完成率", () => showDepartmentReport(company)));
+            button("部门完成率", () => showDepartmentReport(company)), button("岗位能力盘点", () => showCompetencyPlans(company)));
         if (actor.roles.includes("admin")) {
             actions.append(button("企业管理员", () => showCompanyAdmins(company)), button("登记采购", () => newPurchase(company), "primary"));
         }

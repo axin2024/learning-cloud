@@ -8,6 +8,11 @@ const stateLabels = {
     assigned: "待激活", activated: "已激活", reclaimed: "已回收", duplicate: "已有席位", rejected: "未分配",
 };
 const errorLabels = {
+    bind_cohort_rubric_first: "请先为班期冻结评分标准。", contribution_required: "部分学员尚未记录个人贡献。",
+    request_key_conflict: "这次提交的内容已更改，请重新打开窗口。", late_approval_required: "已超过截止时刻，请先申请本次补交并等待导师批准。",
+    pending_extension_required: "当前没有待批准的补交申请。", extension_already_requested: "本次提交已经申请补交。",
+    invalid_extension_deadline: "补交截止时刻须晚于现在和原截止时刻。", invalid_artifact: "请选择非空作品文件，最大 2 MiB。",
+    contribution_revision_changed: "个人贡献已更新，请刷新后再编辑。", weights_must_total_100: "各维度的权重之和须为 100%。",
     invalid_credentials: "学习空间、邮箱或密码有误。", login_required: "登录已过期，请重新登录。",
     invalid_csrf_token: "页面验证已过期，请刷新后重试。", invalid_input: "请检查填写内容。",
     registrar_required: "此操作需要教务权限。", learner_or_registrar_required: "此操作需要学员或教务权限。",
@@ -125,6 +130,8 @@ function errorMessage(error) {
     if (Array.isArray(details.chapters)) detail = ` 缺少授权的章节 ${details.chapters.join("、")}。`;
     if (Array.isArray(details.missing)) detail = ` 待完成 ${details.missing.map((course) => course.title).join("、")}。`;
     if (details.field) detail = ` 字段 ${details.field}。`;
+    if (Array.isArray(details.members)) detail = " " + details.members.map(m => "#" + m.learner_id + "（" + m.dimensions.join("、") + "）").join("、");
+    if (Array.isArray(details.dimensions) && details.dimensions.length) detail = " 待交维度：" + details.dimensions.map(d => d.name).join("、") + "。";
     if (id && !errorLabels[reason]) detail += ` 请求编号 ${id}。`;
     return message + detail;
 }
@@ -168,6 +175,8 @@ function displayNavigation(current) {
     if (actor.roles.includes("admin") || actor.roles.includes("enterprise_admin")) entries.push(["companies", "企业购课", showCompanies]);
     if (manages()) entries.push(["live", "直播出勤", showLiveHub], ["reports", "课程经营", showCourseReports]);
     if (actor.roles.includes("instructor")) entries.push(["teaching", "授课班期", showTeachingCohorts]);
+    if (actor.roles.includes("instructor")) entries.push(["panel", "匿名评审", showPracticumInbox]);
+    if (actor.roles.includes("learner")) entries.push(["competency-training", "岗位复训", showCompetencyTraining]);
     if (manages() || actor.roles.includes("learner")) entries.push(["retraining", "复训任务", showRetraining]);
     if (actor.roles.includes("admin")) entries.push(["accounts", "成员", showAccounts]);
     $("navigation").replaceChildren(...entries.map(([screen, label, navigate]) => {
@@ -437,6 +446,9 @@ async function showCohort(id, after = 0) {
     await display("cohorts", async () => {
         const cohort = await api(`/api/cohorts/${id}`);
         const actions = element("div", null, "toolbar");
+        if (manages() || actor.roles.includes("learner")) {
+            actions.append(button("岗位实训", () => showPracticums(cohort, manages())));
+        }
         const sections = [block("div", "surface", badge(cohort.registration_open ? "open" : "closed"),
             block("div", "metrics", metric("占用席位", `${cohort.occupied} / ${cohort.capacity}`), metric("候补人数", cohort.waitlisted)))];
         if (cohort.path) {

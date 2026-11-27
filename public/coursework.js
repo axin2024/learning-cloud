@@ -20,8 +20,9 @@ async function showTeachingCohorts(after = 0) {
     await display("teaching", async () => {
         const page = await api(courseworkApi + "/teaching-cohorts?after=" + after);
         const rows = page.items.map((cohort) => [button(cohort.name, () => showCohortCoursework(cohort, true), "row-link"),
-            cohort.course_title, teachingDuties[cohort.duty], button("考试场次", () => showExamSittings(cohort, true), "row-link")]);
-        return [heading("授课班期"), paginated(["班期", "课程", "职责", "考试"], page, rows, "暂未分配授课班期。", after, showTeachingCohorts)];
+            cohort.course_title, teachingDuties[cohort.duty], button("考试场次", () => showExamSittings(cohort, true), "row-link"),
+            button("岗位实训", () => showPracticums(cohort, true), "row-link")]);
+        return [heading("授课班期"), paginated(["班期", "课程", "职责", "考试", "实训"], page, rows, "暂未分配授课班期。", after, showTeachingCohorts)];
     });
 }
 

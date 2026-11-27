@@ -1,0 +1,504 @@
+{
+  "cohort_id": 1,
+  "report_plan": {
+    "department_id": 1,
+    "cohort_id": 1,
+    "disclosure_minimum": 3
+  },
+  "initial_submission_input": {
+    "team_id": 1,
+    "attempt": 1,
+    "artifact_hashes": [
+      "sha256:2ac2bc69e01f2075b9e451352e40e037f5d5e47e4de844f259dedc73f413ba13",
+      "sha256:18b448f7ee596c872ebb26ab4b45f06cb97895304b40ca6529e4f1ea794b64c2",
+      "sha256:f6775b828456daf4504955cd3111ca7ce07898817aca3846693ebe5a2b8fd345",
+      "sha256:73922a1e532d2c16a940e13d36db5e641f7b68ae1ab3c04fd87a7129eb0023f0",
+      "sha256:e19ca707654ea5bb50a679c06e29aba6006f8008a7054e19a91cfc5a3974cd55",
+      "sha256:c5987f8ea2dd4778aa6efc75cf282b6ac6d0f1c354ff15ad8c412239ac159615",
+      "sha256:30cc57066f91ddca48aa421368cb7fd36c98142a4ed7756a1dfc8c4fca53304c"
+    ],
+    "rubric_rev": 1
+  },
+  "initial_receipt": {
+    "submission_id": 1,
+    "attempt": 1,
+    "submitted_at": "2026-11-27T02:32:34.843910Z",
+    "late": true,
+    "extension_id": 1,
+    "manifest_digest": "72952ee50461bd849ce34894273534d55e7b5a3fa6de23f4f83c4a37c15c563f",
+    "evidence_manifest": {
+      "members": [
+        {
+          "revision": 1,
+          "learner_id": 2,
+          "assignment_id": 1
+        },
+        {
+          "revision": 1,
+          "learner_id": 4,
+          "assignment_id": 2
+        },
+        {
+          "revision": 1,
+          "learner_id": 5,
+          "assignment_id": 3
+        }
+      ],
+      "artifacts": [
+        {
+          "kind": "document",
+          "scope": "team",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:2ac2bc69e01f2075b9e451352e40e037f5d5e47e4de844f259dedc73f413ba13",
+          "artifact_id": 1,
+          "assignment_id": 1,
+          "dimension_code": "delivery"
+        },
+        {
+          "kind": "video",
+          "scope": "personal",
+          "anchor": {
+            "end_ms": 2000,
+            "start_ms": 0
+          },
+          "digest": "sha256:18b448f7ee596c872ebb26ab4b45f06cb97895304b40ca6529e4f1ea794b64c2",
+          "artifact_id": 2,
+          "assignment_id": 1,
+          "dimension_code": "record"
+        },
+        {
+          "kind": "image",
+          "scope": "personal",
+          "anchor": {
+            "x_pct": 0,
+            "y_pct": 0,
+            "width_pct": 100,
+            "height_pct": 100
+          },
+          "digest": "sha256:f6775b828456daf4504955cd3111ca7ce07898817aca3846693ebe5a2b8fd345",
+          "artifact_id": 3,
+          "assignment_id": 1,
+          "dimension_code": "plan"
+        },
+        {
+          "kind": "document",
+          "scope": "personal",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:73922a1e532d2c16a940e13d36db5e641f7b68ae1ab3c04fd87a7129eb0023f0",
+          "artifact_id": 4,
+          "assignment_id": 1,
+          "dimension_code": "check"
+        },
+        {
+          "kind": "image",
+          "scope": "personal",
+          "anchor": {
+            "x_pct": 0,
+            "y_pct": 0,
+            "width_pct": 100,
+            "height_pct": 100
+          },
+          "digest": "sha256:e19ca707654ea5bb50a679c06e29aba6006f8008a7054e19a91cfc5a3974cd55",
+          "artifact_id": 5,
+          "assignment_id": 2,
+          "dimension_code": "plan"
+        },
+        {
+          "kind": "document",
+          "scope": "personal",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:c5987f8ea2dd4778aa6efc75cf282b6ac6d0f1c354ff15ad8c412239ac159615",
+          "artifact_id": 6,
+          "assignment_id": 2,
+          "dimension_code": "check"
+        },
+        {
+          "kind": "image",
+          "scope": "personal",
+          "anchor": {
+            "x_pct": 0,
+            "y_pct": 0,
+            "width_pct": 100,
+            "height_pct": 100
+          },
+          "digest": "sha256:30cc57066f91ddca48aa421368cb7fd36c98142a4ed7756a1dfc8c4fca53304c",
+          "artifact_id": 7,
+          "assignment_id": 3,
+          "dimension_code": "plan"
+        }
+      ],
+      "rubric_id": 1
+    },
+    "missing_evidence": [
+      {
+        "code": "check",
+        "name": "核验",
+        "assignment_id": 3
+      }
+    ],
+    "changes": {
+      "added": [
+        1,
+        2,
+        3,
+        4,
+        5,
+        6,
+        7
+      ],
+      "removed": [],
+      "changed_contributions": [
+        1,
+        2,
+        3
+      ]
+    },
+    "attempt_id": 1
+  },
+  "supplement_receipt": {
+    "submission_id": 3,
+    "attempt": 3,
+    "submitted_at": "2026-11-27T02:32:46.199076Z",
+    "late": true,
+    "extension_id": 3,
+    "manifest_digest": "cdb29eedd1633643f95e5e84d0f9d859f50bf5128bda342123c01038dfa0b30c",
+    "evidence_manifest": {
+      "members": [
+        {
+          "revision": 1,
+          "learner_id": 2,
+          "assignment_id": 1
+        },
+        {
+          "revision": 1,
+          "learner_id": 4,
+          "assignment_id": 2
+        },
+        {
+          "revision": 1,
+          "learner_id": 5,
+          "assignment_id": 3
+        }
+      ],
+      "artifacts": [
+        {
+          "kind": "document",
+          "scope": "team",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:2ac2bc69e01f2075b9e451352e40e037f5d5e47e4de844f259dedc73f413ba13",
+          "artifact_id": 1,
+          "assignment_id": 1,
+          "dimension_code": "delivery"
+        },
+        {
+          "kind": "video",
+          "scope": "personal",
+          "anchor": {
+            "end_ms": 2000,
+            "start_ms": 0
+          },
+          "digest": "sha256:18b448f7ee596c872ebb26ab4b45f06cb97895304b40ca6529e4f1ea794b64c2",
+          "artifact_id": 2,
+          "assignment_id": 1,
+          "dimension_code": "record"
+        },
+        {
+          "kind": "image",
+          "scope": "personal",
+          "anchor": {
+            "x_pct": 0,
+            "y_pct": 0,
+            "width_pct": 100,
+            "height_pct": 100
+          },
+          "digest": "sha256:f6775b828456daf4504955cd3111ca7ce07898817aca3846693ebe5a2b8fd345",
+          "artifact_id": 3,
+          "assignment_id": 1,
+          "dimension_code": "plan"
+        },
+        {
+          "kind": "document",
+          "scope": "personal",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:73922a1e532d2c16a940e13d36db5e641f7b68ae1ab3c04fd87a7129eb0023f0",
+          "artifact_id": 4,
+          "assignment_id": 1,
+          "dimension_code": "check"
+        },
+        {
+          "kind": "image",
+          "scope": "personal",
+          "anchor": {
+            "x_pct": 0,
+            "y_pct": 0,
+            "width_pct": 100,
+            "height_pct": 100
+          },
+          "digest": "sha256:e19ca707654ea5bb50a679c06e29aba6006f8008a7054e19a91cfc5a3974cd55",
+          "artifact_id": 5,
+          "assignment_id": 2,
+          "dimension_code": "plan"
+        },
+        {
+          "kind": "document",
+          "scope": "personal",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:c5987f8ea2dd4778aa6efc75cf282b6ac6d0f1c354ff15ad8c412239ac159615",
+          "artifact_id": 6,
+          "assignment_id": 2,
+          "dimension_code": "check"
+        },
+        {
+          "kind": "image",
+          "scope": "personal",
+          "anchor": {
+            "x_pct": 0,
+            "y_pct": 0,
+            "width_pct": 100,
+            "height_pct": 100
+          },
+          "digest": "sha256:30cc57066f91ddca48aa421368cb7fd36c98142a4ed7756a1dfc8c4fca53304c",
+          "artifact_id": 7,
+          "assignment_id": 3,
+          "dimension_code": "plan"
+        },
+        {
+          "kind": "document",
+          "scope": "personal",
+          "anchor": {
+            "page": 1
+          },
+          "digest": "sha256:3237e4240411a52fffdf4b1dd494742d2d0540ed20ea9ccbb9b2333b67d512d0",
+          "artifact_id": 9,
+          "assignment_id": 3,
+          "dimension_code": "check"
+        }
+      ],
+      "rubric_id": 1
+    },
+    "missing_evidence": [],
+    "changes": {
+      "added": [
+        9
+      ],
+      "removed": [
+        8
+      ],
+      "changed_contributions": []
+    },
+    "attempt_id": 3
+  },
+  "department_before": {
+    "plan_id": 1,
+    "cohort_id": 1,
+    "department_id": 1,
+    "job_title": "实训技术员",
+    "required_count": 3,
+    "qualified_count": 2,
+    "coverage_pct": 66.7,
+    "disclosure_minimum": 3,
+    "suppressed": false,
+    "gaps": {
+      "check": {
+        "name": "核验",
+        "missing_count": 1
+      }
+    },
+    "members": [
+      {
+        "learner_id": 2,
+        "name": "learner",
+        "case_id": 2,
+        "score": "80.0",
+        "missing_dimensions": [],
+        "appeal_pending": false,
+        "qualified": true,
+        "training_id": null,
+        "training_completed_at": null,
+        "training_baseline": null,
+        "training_final": null,
+        "score_change": null
+      },
+      {
+        "learner_id": 4,
+        "name": "builder",
+        "case_id": 3,
+        "score": "79.0",
+        "missing_dimensions": [],
+        "appeal_pending": false,
+        "qualified": true,
+        "training_id": null,
+        "training_completed_at": null,
+        "training_baseline": null,
+        "training_final": null,
+        "score_change": null
+      },
+      {
+        "learner_id": 5,
+        "name": "inspector",
+        "case_id": 4,
+        "score": "72.5",
+        "missing_dimensions": {
+          "check": "核验"
+        },
+        "appeal_pending": false,
+        "qualified": false,
+        "training_id": null,
+        "training_completed_at": null,
+        "training_baseline": null,
+        "training_final": null,
+        "score_change": null
+      }
+    ],
+    "training_completed": 0
+  },
+  "privacy_readback": {
+    "plan_id": 1,
+    "cohort_id": 1,
+    "department_id": 1,
+    "job_title": "实训技术员",
+    "required_count": 3,
+    "qualified_count": 2,
+    "coverage_pct": 66.7,
+    "disclosure_minimum": 4,
+    "suppressed": true,
+    "gaps": {
+      "check": {
+        "name": "核验",
+        "missing_count": 1
+      }
+    },
+    "members": [],
+    "training_completed": 0
+  },
+  "officer_input": {
+    "decision": "amended",
+    "score": 80,
+    "reason": "原始量测值与复测记录一致，改为达标。"
+  },
+  "appeal_receipt": {
+    "credential_id": 4,
+    "serial": "PC-631A058D36B7DE338B962E30D0D679BB",
+    "revision": 1,
+    "replaced_credential": null,
+    "appeal_id": 3,
+    "status": "amended",
+    "evaluation": {
+      "scores": {
+        "plan": 80,
+        "check": 80,
+        "record": 80,
+        "delivery": 80
+      },
+      "weighted_score": "80.0",
+      "meets_standard": true,
+      "missing_dimensions": []
+    }
+  },
+  "department_after": {
+    "plan_id": 1,
+    "cohort_id": 1,
+    "department_id": 1,
+    "job_title": "实训技术员",
+    "required_count": 3,
+    "qualified_count": 3,
+    "coverage_pct": 100,
+    "disclosure_minimum": 3,
+    "suppressed": false,
+    "gaps": {},
+    "members": [
+      {
+        "learner_id": 2,
+        "name": "learner",
+        "case_id": 2,
+        "score": "80.0",
+        "missing_dimensions": [],
+        "appeal_pending": false,
+        "qualified": true,
+        "training_id": null,
+        "training_completed_at": null,
+        "training_baseline": null,
+        "training_final": null,
+        "score_change": null
+      },
+      {
+        "learner_id": 4,
+        "name": "builder",
+        "case_id": 3,
+        "score": "79.0",
+        "missing_dimensions": [],
+        "appeal_pending": false,
+        "qualified": true,
+        "training_id": null,
+        "training_completed_at": null,
+        "training_baseline": null,
+        "training_final": null,
+        "score_change": null
+      },
+      {
+        "learner_id": 5,
+        "name": "inspector",
+        "case_id": 4,
+        "score": "80.0",
+        "missing_dimensions": [],
+        "appeal_pending": false,
+        "qualified": true,
+        "training_id": 1,
+        "training_completed_at": "2026-11-27 02:32:48.846688",
+        "training_baseline": "72.5",
+        "training_final": "80.0",
+        "score_change": 7.5
+      }
+    ],
+    "training_completed": 1
+  },
+  "replacement_receipt": {
+    "credential_id": 2,
+    "serial": "PC-E26BEF4DB85C748DAD4EE6B4DD477AE1",
+    "revision": 2,
+    "replaced_credential": 1,
+    "appeal_id": 1,
+    "status": "amended",
+    "evaluation": {
+      "scores": {
+        "plan": 80,
+        "check": 80,
+        "record": 80,
+        "delivery": 80
+      },
+      "weighted_score": "80.0",
+      "meets_standard": true,
+      "missing_dimensions": []
+    }
+  },
+  "public_after_revocation": {
+    "status": "revoked",
+    "date": "2026-11-27"
+  },
+  "after_departure": {
+    "plan_id": 1,
+    "cohort_id": 1,
+    "department_id": 1,
+    "job_title": "实训技术员",
+    "required_count": 2,
+    "qualified_count": 2,
+    "coverage_pct": 100,
+    "disclosure_minimum": 3,
+    "suppressed": true,
+    "gaps": {},
+    "members": [],
+    "training_completed": 0
+  }
+}

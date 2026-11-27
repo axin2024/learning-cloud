@@ -6,7 +6,7 @@
 
 ```sh
 mysqldump -h 127.0.0.1 -u learning_backup -p \
-  --single-transaction --no-tablespaces --set-gtid-purged=OFF \
+  --single-transaction --hex-blob --no-tablespaces --set-gtid-purged=OFF \
   learning_cloud > learning-cloud.sql
 sha256sum learning-cloud.sql > learning-cloud.sql.sha256
 ```

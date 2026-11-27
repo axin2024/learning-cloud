@@ -16,7 +16,7 @@ async function verifyCredential(input) {
     output.hidden = true;
     output.replaceChildren();
     verificationMessage("");
-    if (!/^LC-[A-F0-9]{32}$/.test(serial)) {
+    if (!/^(LC|PC)-[A-F0-9]{32}$/.test(serial)) {
         verificationMessage("请填写完整的证书编号。");
         return;
     }
@@ -36,13 +36,19 @@ async function verifyCredential(input) {
         const facts = document.createElement("dl");
         facts.className = "credential-facts";
         const utc = (value) => value.slice(0, 19) + " UTC";
-        for (const [label, value] of [
+        const fields = serial.startsWith("PC-") ? [
+            [card.status === "revoked" ? "失效日期" : "签发日期", card.date],
+            ["当前版本", card.revision], ["岗位标准", card.title], ["认证得分", card.score],
+            ["历史凭证", card.replaced ? "已替换，显示当前有效版本" : undefined],
+        ] : [
             ["证书编号", card.serial],
             ["签发机构", card.issuer_name],
             ["课程与版本", card.course_title + " · 第 " + card.course_revision + " 版"],
             ["签发日期", utc(card.issued_at)],
             ["有效期限", utc(card.expires_at)],
-        ]) {
+        ];
+        for (const [label, value] of fields) {
+            if (value === undefined) continue;
             const key = document.createElement("dt");
             key.textContent = label;
             const detail = document.createElement("dd");

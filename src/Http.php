@@ -26,10 +26,12 @@ final class Http
         try {
             if ($method === 'GET' && str_starts_with($path, '/api/verify-credential/')) {
                 header('X-Robots-Tag: noindex, nofollow');
-                if (!preg_match('~\A/api/verify-credential/(LC-[0-9A-F]{32})\z~i', $path, $parts)) {
+                if (!preg_match('~\A/api/verify-credential/((?:LC|PC)-[0-9A-F]{32})\z~i', $path, $parts)) {
                     throw new Problem(404, 'credential_not_found');
                 }
-                $this->send(Credentials::verify(Store::connect(), strtoupper($parts[1])));
+                $serial = strtoupper($parts[1]);
+                $store = Store::connect(true);
+                $this->send(str_starts_with($serial, 'PC-') ? CompetencyCertification::verify($store, $serial) : Credentials::verify($store, $serial));
             }
             if ($method === 'POST' && $path === '/api/live-attendance') {
                 $input = $this->body();
@@ -77,9 +79,33 @@ final class Http
                 throw new Problem(401, 'login_required');
             }
             $actor = $accounts->find(...$principal);
+            if ($method === 'GET' && $path === '/api/me/competency-prerequisites') {
+                $this->send((new CompetencyRollout($store))->learnerEvidence($actor,$this->cursor()));
+            }
             $catalog = new Catalog($store, $audit);
             $admissions = new Admissions($store, $catalog, $accounts, $audit);
-            if ($method === 'GET' && $path === '/api/reports/courses') {
+            if ($path === '/api/me/competency-training' || preg_match('~^/api/companies/[1-9][0-9]*/competencies(?:/|$)~D', $path)) {
+                [$status, $result] = $this->companyCompetencies($actor, $store, $accounts, $audit, $method, $path, $input);
+            } elseif (str_starts_with($path, '/api/practicum-reviews/')) {
+                [$status, $result] = $this->practicumReviews($actor, $store, $audit, $method, $path, $input);
+            } elseif (str_starts_with($path, '/api/practicums/') || preg_match('~^/api/competency/cohorts/[1-9][0-9]*/practicums$~D', $path)) {
+                [$status, $result] = $this->practicums($actor, $store, $accounts, $audit, $method, $path, $input);
+            } elseif (str_starts_with($path,'/api/competency/')) {
+                $rubrics=new CompetencyRubrics($store,$audit);
+                if ($path==='/api/competency/rubrics' && $method==='GET') $this->send($rubrics->listing($actor,$this->cursor()));
+                if ($path==='/api/competency/rubrics' && $method==='POST')
+                    $this->send($rubrics->publish($actor,Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY']??null),$input),201);
+                if (preg_match('~^/api/competency/rubrics/([1-9][0-9]*)$~D',$path,$m)) {
+                    $actor->requireManagement();
+                    if ($method==='PUT') throw new Problem(409,'publish_replacement_rubric');
+                    if ($method==='GET') $this->send($rubrics->read($actor->tenantId,$this->id($m[1])));
+                }
+                if (preg_match('~^/api/competency/cohorts/([1-9][0-9]*)/rubric$~D',$path,$m)) {
+                    if ($method==='GET') $this->send($rubrics->forCohort($actor,$this->id($m[1])));
+                    if ($method==='PUT') $this->send($rubrics->bind($actor,$this->id($m[1]),Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY']??null),$input));
+                }
+                $this->notFound();
+            } elseif ($method === 'GET' && $path === '/api/reports/courses') {
                 $reports = new Reports($store, new Companies($store, $accounts, $audit));
                 [$status, $result] = [200, $reports->courses($actor, $_GET, $this->cursor())];
             } elseif ($method === 'GET' && preg_match('~\A/api/companies/([1-9][0-9]*)/reports/(departments|enrollments)\z~', $path, $report)) {
@@ -133,6 +159,193 @@ final class Http
             error_log('Learning Cloud request ' . $requestId . ' failed: ' . $error::class . ' [' . $error->getCode() . ']');
             $this->send(['error' => 'internal_error', 'request_id' => $requestId], 500);
         }
+    }
+
+    private function practicums(Actor $actor, Store $store, Accounts $accounts, Audit $audit, string $method, string $path, array $input): array
+    {
+        $staff = new TeachingStaff($store, $accounts, $audit);
+        $tasks = new Practicums($store, $staff, $audit);
+        $evidence = new PracticumEvidence($store, $tasks, $audit);
+        $write = function (string $operation, callable $apply, int $status = 201) use ($store, $actor, $path, $input): array {
+            $key = Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null);
+            return [$status, (new PracticumWrites($store))->once($actor, $operation, $key, [$path, $input], $apply)];
+        };
+        if (preg_match('~^/api/competency/cohorts/([1-9][0-9]*)/practicums$~D', $path, $match)) {
+            $cohort = $this->id($match[1]);
+            if ($method === 'GET') {
+                return [200, $tasks->listing($actor, $cohort, $this->cursor())];
+            }
+            if ($method === 'POST') {
+                $staff->requireMarker($actor, $cohort);
+                return $write('practicum.publish', fn() => $tasks->publish($actor, $cohort, $input));
+            }
+            $this->notFound();
+        }
+        if (!preg_match('~^/api/practicums/([1-9][0-9]*)(/.*)?$~D', $path, $match)) {
+            $this->notFound();
+        }
+        $id = $this->id($match[1]);
+        $suffix = $match[2] ?? '';
+        if ($suffix === '' && $method === 'GET') {
+            return [200, $tasks->detail($actor, $id)];
+        }
+        $task = $tasks->task($actor, $id);
+        if ($suffix === '/candidates' && $method === 'GET') {
+            return [200, $tasks->candidates($actor, $id, $this->cursor())];
+        }
+        if ($suffix === '/teams' && $method === 'POST') {
+            $staff->requireMarker($actor, $task['cohort_id']);
+            return $write('practicum.assign', fn() => $tasks->assign($actor, $id, $input));
+        }
+        if ($suffix === '/submissions' && $method === 'POST') {
+            $tasks->membership($actor, $task, Input::integer($input, 'team_id', 1));
+            return $write('practicum.submit', fn() => $evidence->submit($actor, $id, $input));
+        }
+        if (!preg_match('~^/teams/([1-9][0-9]*)/(.+)$~D', $suffix, $match)) {
+            $this->notFound();
+        }
+        $team = $this->id($match[1]);
+        $action = $match[2];
+        if ($method === 'GET' && preg_match('~^artifacts/([1-9][0-9]*)$~D', $action, $artifact)) {
+            return [200, $evidence->download($actor, $id, $team, $this->id($artifact[1]))];
+        }
+        if ($method === 'GET' && preg_match('~^submissions/([1-9][0-9]*)$~D', $action, $attempt)) {
+            return [200, $evidence->receipt($actor, $id, $team, $this->id($attempt[1]))];
+        }
+        if ($action === 'extension' && $method === 'PUT') {
+            $staff->requireMarker($actor, $task['cohort_id']);
+            return $write('practicum.approve', fn() => $tasks->extension($actor, $id, $team, $input, true), 200);
+        }
+        $tasks->membership($actor, $task, $team);
+        return match ([$method, $action]) {
+            ['POST', 'extension'] => $write('practicum.extension', fn() => $tasks->extension($actor, $id, $team, $input, false)),
+            ['PUT', 'contribution'] => $write('practicum.contribute', fn() => $tasks->contribution($actor, $id, $team, $input), 200),
+            ['POST', 'artifacts'] => $write('practicum.upload', fn() => $evidence->upload($actor, $id, $team, $input)),
+            ['GET', 'artifacts'] => [200, $evidence->drafts($actor, $id, $team)],
+            default => $this->notFound(),
+        };
+    }
+
+    private function practicumReviews(Actor $actor, Store $store, Audit $audit, string $method, string $path, array $input): array
+    {
+        $reviews = new PracticumReviews($store, $audit);
+        if ($path === '/api/practicum-reviews/inbox' && $method === 'GET') {
+            return [200, $reviews->inbox($actor, $this->cursor())];
+        }
+        $write = function (string $operation, callable $apply, int $status) use ($store, $actor, $path, $input): array {
+            $key = Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null);
+            return [$status, (new PracticumWrites($store))->once($actor, $operation, $key, [$path, $input], $apply)];
+        };
+        if (preg_match('~^/api/practicum-reviews/submissions/([1-9][0-9]*)/cases$~D', $path, $m)) {
+            if ($method === 'GET') {
+                return [200, $reviews->cases($actor, $this->id($m[1]))];
+            }
+            if ($method === 'POST') {
+                $actor->requireManagement();
+                return $write('review.prepare', fn() => $reviews->prepare($actor, $this->id($m[1]), $input), 201);
+            }
+            $this->notFound();
+        }
+        if (preg_match('~^/api/practicum-reviews/cases/([1-9][0-9]*)/(certification|credential|disclosure|revoke|appeals)(?:/([1-9][0-9]*))?$~D', $path, $m)) {
+            $case = $this->id($m[1]);
+            $cert = new CompetencyCertification($store, $audit);
+            $s = $cert->subject($actor, $case);
+            if (isset($m[3])) {
+                if ($m[2] !== 'appeals') {
+                    $this->notFound();
+                }
+                $appeal = $this->id($m[3]);
+                if ($method === 'GET') {
+                    return [200, $cert->dossier($actor, $case, $appeal)];
+                }
+                if ($method === 'PUT') {
+                    $actor->requireManagement();
+                    return $write('appeal.decide', fn() => $cert->decide($actor, $case, $appeal, $input), 200);
+                }
+                $this->notFound();
+            }
+            if (in_array($m[2], ['credential','revoke'], true)) {
+                $actor->requireManagement();
+            }
+            if (in_array($m[2], ['appeals','disclosure'], true) && $s['learner_id'] !== $actor->accountId) {
+                throw new Problem(403, 'holder_required');
+            }
+            return match ([$method, $m[2]]) {
+                ['GET','certification'] => [200, $cert->detail($actor, $case)],
+                ['POST','credential'] => $write('competency.issue', fn() => $cert->issue($actor, $case), 201),
+                ['PUT','disclosure'] => $write('competency.disclose', fn() => $cert->disclose($actor, $case, $input), 200),
+                ['POST','revoke'] => $write('competency.revoke', fn() => $cert->revoke($actor, $case, $input), 200),
+                ['POST','appeals'] => $write('appeal.open', fn() => $cert->openAppeal($actor, $case, $input), 201),
+                default => $this->notFound(),
+            };
+        }
+        if (!preg_match('~^/api/practicum-reviews/cases/([1-9][0-9]*)/(result|ballot|seats)$~D', $path, $m)) {
+            $this->notFound();
+        }
+        $case = $this->id($m[1]);
+        if ($m[2] === 'result' && $method === 'GET') {
+            return [200, $reviews->result($actor, $case)];
+        }
+        if ($m[2] === 'ballot') {
+            $ballot = $reviews->ballot($actor, $case);
+            if ($method === 'GET') {
+                return [200, $ballot];
+            }
+            if ($method === 'PUT') {
+                return $write('review.score', fn() => $reviews->score($actor, $case, $input), 200);
+            }
+        }
+        if ($m[2] === 'seats' && $method === 'PUT') {
+            $actor->requireManagement();
+            return $write('review.assign', fn() => $reviews->assign($actor, $case, $input), 200);
+        }
+        $this->notFound();
+    }
+
+    private function companyCompetencies(Actor $actor, Store $store, Accounts $accounts, Audit $audit, string $method, string $path, array $input): array
+    {
+        $companies = new Companies($store, $accounts, $audit);
+        $service = new CompanyCompetencies($store, $companies, $audit);
+        if ($path === '/api/me/competency-training' && $method === 'GET') {
+            return [200, $service->myTraining($actor,$this->cursor())];
+        }
+        if (!preg_match('~^/api/companies/([1-9][0-9]*)/competencies(?:/(.*))?$~D', $path, $m)) {
+            $this->notFound();
+        }
+        $company = $this->id($m[1]);
+        $companies->scope($actor, $company);
+        $tail = $m[2] ?? '';
+        $write = function (string $operation, callable $apply, int $status = 200) use ($store,$actor,$input,$path): array {
+            $key = Input::requestKey($_SERVER['HTTP_IDEMPOTENCY_KEY'] ?? null);
+            return [$status,(new PracticumWrites($store))->once($actor,$operation,$key,[$path,$input],$apply)];
+        };
+        if ($tail === '') {
+            if ($method === 'GET') {
+                return [200,$service->plans($actor,$company,$this->cursor())];
+            }
+            if ($method === 'POST') {
+                $companies->requireSpaceAdmin($actor);
+                return $write('competency.plan',fn() => $service->configure($actor,$company,$input),201);
+            }
+        }
+        if ($method === 'PUT' && preg_match('~^employment/([1-9][0-9]*)$~D',$tail,$m)) {
+            $companies->requireSpaceAdmin($actor);
+            return $write('competency.employment',fn() => $service->employment($actor,$company,$this->id($m[1]),$input));
+        }
+        if (!preg_match('~^([1-9][0-9]*)(?:/(roster|training))?$~D',$tail,$m)) {
+            $this->notFound();
+        }
+        $id = $this->id($m[1]);
+        $action = $m[2] ?? '';
+        if ($action === 'roster' && $method === 'PUT') {
+            $companies->requireSpaceAdmin($actor);
+            return $write('competency.roster',fn() => $service->roster($actor,$company,$id,$input));
+        }
+        return match ([$method,$action]) {
+            ['GET',''] => [200,$service->report($actor,$company,$id)],
+            ['POST','training'] => $write('competency.training',fn() => $service->retrain($actor,$company,$id,$input),201),
+            default => $this->notFound(),
+        };
     }
 
     private function learningPaths(Actor $actor, LearningPaths $paths, string $method, string $path, array $input): array

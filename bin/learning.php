@@ -2,6 +2,7 @@
 declare(strict_types=1);
 
 use LearningCloud\Accounts;
+use LearningCloud\CompetencyRollout;
 use LearningCloud\Audit;
 use LearningCloud\ExamCatalog;
 use LearningCloud\Exams;
@@ -14,8 +15,9 @@ use LearningCloud\TeachingStaff;
 require dirname(__DIR__) . '/src/bootstrap.php';
 
 $command = $argv[1] ?? '';
-if (!in_array($command, ['migrate', 'health', 'exam-sweep', 'credential-sweep', 'create-tenant'], true)) {
+if (!in_array($command, ['migrate', 'health', 'exam-sweep', 'credential-sweep', 'create-tenant', 'competency-rollout'], true)) {
     fwrite(STDERR, "Usage: php bin/learning.php migrate|health|exam-sweep [LIMIT]|credential-sweep [LIMIT]|create-tenant TENANT TENANT_NAME ADMIN_EMAIL ADMIN_NAME\n");
+    fwrite(STDERR, "       php bin/learning.php competency-rollout preflight|batch|enable|drain|pending TENANT_ID [LIMIT] [AFTER]\n");
     exit(2);
 }
 
@@ -28,6 +30,24 @@ try {
         $ready = $schema->ready();
         echo json_encode(['ready' => $ready], JSON_THROW_ON_ERROR), PHP_EOL;
         exit($ready ? 0 : 1);
+    } elseif ($command === 'competency-rollout') {
+        $operation = $argv[2] ?? '';
+        $tenant = filter_var($argv[3] ?? null, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1]]);
+        $limit = filter_var($argv[4] ?? 100, FILTER_VALIDATE_INT, ['options'=>['min_range'=>1,'max_range'=>1000]]);
+        $after = filter_var($argv[5] ?? 0, FILTER_VALIDATE_INT, ['options'=>['min_range'=>0]]);
+        if ($tenant === false || $limit === false || $after === false ||
+            count($argv) > match ($operation) {'batch'=>5,'pending'=>6,default=>4}) {
+            throw new Problem(422,'invalid_rollout_arguments');
+        }
+        $rollout = new CompetencyRollout($store);
+        $result = match ($operation) {
+            'preflight' => $rollout->preflight($tenant),
+            'batch' => $rollout->batch($tenant,$limit),
+            'enable' => $rollout->switchMode($tenant,true),
+            'drain' => $rollout->switchMode($tenant,false),
+            'pending' => $rollout->pending($tenant,$after,$limit),
+            default => throw new Problem(422,'invalid_rollout_operation'),
+        };
     } elseif (in_array($command, ['exam-sweep', 'credential-sweep'], true)) {
         $limit = filter_var($argv[2] ?? 100, FILTER_VALIDATE_INT, ['options' => ['min_range' => 1, 'max_range' => 1000]]);
         if (count($argv) > 3 || $limit === false) {
